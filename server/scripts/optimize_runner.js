@@ -2,8 +2,8 @@
  * ==========================================================
  * ETF多资产动态配置策略系统 - 全自动、多维度网格参数寻优引擎 (Independent Optimizer)
  * ==========================================================
- * 该离线脚本由系统底层服务支撑，专为探寻投资最优性价比而作。
- * 它可以完全自适应系统配置的任意三种 ETF 资产组合。
+ * 该离线脚本位于 server/scripts/ 目录，通过命令行手动执行：
+ *   node scripts/optimize_runner.js
  * 它会在历史行情中笛卡尔积式地遍历：
  * 1. 资产初始比例的所有排列组合 (20% 步长, 总和为100%)
  * 2. 日常再平衡阈值 [1.0%, 2.0%, 3.0%]
@@ -17,8 +17,8 @@
  * - 夏普比率 (Sharpe Ratio, 收益/波动性价比)
  * - 卡玛比率 (Calmar Ratio, 收益/最大回撤性价比)
  */
-const db = require('./src/config/db');
-const backtestService = require('./src/services/backtest');
+const db = require('../src/config/db');
+const backtestService = require('../src/services/backtest');
 const fs = require('fs');
 const path = require('path');
 
@@ -144,7 +144,7 @@ const logPrefix = () => `[OPTIMIZER ${new Date().toLocaleTimeString()}]`;
                         rebalanceConfig: combo.enableRebalance ? { enabled: true } : null,
                         rebalanceThreshold: threshold,
                         tradeFrequency: 'daily',
-                        strategyPriority: 'strategy_a',
+                        strategyPriority: 'rebalance',
                         centralAnnual: 10.0,
                         resetOnHigh: true,
                         isOptimization: true // 强制内存运算
@@ -261,7 +261,7 @@ const logPrefix = () => `[OPTIMIZER ${new Date().toLocaleTimeString()}]`;
         // --------------------------------------------------------
         // 8. 写入自适应数据 CSV 文件
         // --------------------------------------------------------
-        const csvDir = path.join(__dirname, 'scratch');
+        const csvDir = path.join(__dirname, '..', 'output');
         if (!fs.existsSync(csvDir)) {
             fs.mkdirSync(csvDir, { recursive: true });
         }

@@ -48,21 +48,46 @@
 				</el-row>
 				<el-row :gutter="20">
 					<el-col :span="8">
-						<el-form-item label="再平衡阈值(%)">
-							<el-input-number v-model="params.rebalanceThreshold" :min="0" :max="20" :step="0.1" :precision="1" style="width: 100%" />
+						<el-form-item>
+							<template #label>
+								<span class="custom-form-label">
+									再平衡阈值(%)
+									<el-tooltip content="请在下方『策略组合』中勾选『再平衡』以启用此参数调整" placement="top" effect="dark">
+										<el-icon class="info-icon"><InfoFilled /></el-icon>
+									</el-tooltip>
+								</span>
+							</template>
+							<el-input-number v-model="params.rebalanceThreshold" :min="0" :max="20" :step="0.1" :precision="1" style="width: 100%" :disabled="!enableRebalance" />
 						</el-form-item>
 					</el-col>
 					<el-col :span="8">
-						<el-form-item label="策略优先级">
-							<el-select v-model="params.strategyPriority" style="width: 100%">
+						<el-form-item>
+							<template #label>
+								<span class="custom-form-label">
+									策略优先级
+									<el-tooltip content="仅在启用多种调仓策略（如再平衡、策略A、策略B中的任意两个及以上）时生效，用于裁决决策发生冲突时的首选策略" placement="top" effect="dark">
+										<el-icon class="info-icon"><InfoFilled /></el-icon>
+									</el-tooltip>
+								</span>
+							</template>
+							<el-select v-model="params.strategyPriority" style="width: 100%" :disabled="!enablePrioritySelect" placeholder="请选择优先级（可选）" clearable>
+								<el-option label="再平衡优先" value="rebalance" />
 								<el-option label="策略A优先" value="strategy_a" />
 								<el-option label="策略B优先" value="strategy_b" />
 							</el-select>
 						</el-form-item>
 					</el-col>
 					<el-col :span="8">
-						<el-form-item label="组合年化中枢(%)">
-							<el-input-number v-model="params.centralAnnual" :min="1" :max="30" :step="0.5" :precision="1" style="width: 100%" />
+						<el-form-item>
+							<template #label>
+								<span class="custom-form-label">
+									组合年化中枢(%)
+									<el-tooltip content="仅在下方『策略组合』中启用『策略B（年化中枢估值偏离策略）』时生效" placement="top" effect="dark">
+										<el-icon class="info-icon"><InfoFilled /></el-icon>
+									</el-tooltip>
+								</span>
+							</template>
+							<el-input-number v-model="params.centralAnnual" :min="1" :max="30" :step="0.5" :precision="1" style="width: 100%" :disabled="!enableStrategyB" />
 						</el-form-item>
 					</el-col>
 				</el-row>
@@ -339,7 +364,7 @@ const params = reactive<BacktestParams>({
 	strategyBConfig: null,
 	rebalanceThreshold: 2,
 	tradeFrequency: 'daily',
-	strategyPriority: 'strategy_a',
+	strategyPriority: 'rebalance',
 	centralAnnual: 10,
 	resetOnHigh: true,
 })
@@ -348,6 +373,15 @@ const strategyToggles = ref(['rebalance', '', ''])
 const enableStrategyA = computed(() => strategyToggles.value.includes('strategyA'))
 const enableStrategyB = computed(() => strategyToggles.value.includes('strategyB'))
 const enableRebalance = computed(() => strategyToggles.value.includes('rebalance'))
+
+const activeStrategiesCount = computed(() => {
+	let count = 0
+	if (enableRebalance.value) count++
+	if (enableStrategyA.value) count++
+	if (enableStrategyB.value) count++
+	return count
+})
+const enablePrioritySelect = computed(() => activeStrategiesCount.value >= 2)
 
 const optimizeRanges = reactive({ rebalanceThreshold: [1.0, 1.5, 2.0] })
 const optimizeRates = ref(['default'])
@@ -753,5 +787,29 @@ onMounted(async () => {
 }
 .result-value.info {
 	color: #67c23a;
+}
+
+.custom-form-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.info-icon {
+	color: #909399;
+	font-size: 14px;
+	cursor: pointer;
+	transition: color 0.2s ease;
+	vertical-align: middle;
+}
+
+.info-icon:hover {
+	color: #409eff;
+}
+
+/* 使得禁用的输入框样式更加美观柔和 */
+:deep(.el-input.is-disabled .el-input__inner) {
+	color: #c0c4cc;
+	-webkit-text-fill-color: #c0c4cc;
 }
 </style>

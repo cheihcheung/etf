@@ -22,7 +22,7 @@ async function runBacktest(params) {
         rebalanceConfig = null,
         rebalanceThreshold = 1.5,
         tradeFrequency = 'monthly',
-        strategyPriority = 'strategy_a',
+        strategyPriority = 'rebalance',
         centralAnnual = 10,
         resetOnHigh = true
     } = params;
@@ -370,21 +370,45 @@ async function runBacktest(params) {
             let chosenResult = null;
             let chosenStrategy = '';
 
-            if (aResult && bResult) {
-                // 两者在同一交易日同时被触发，采用用户预设的优先级机制
-                if (strategyPriority === 'strategy_b') {
-                    chosenResult = bResult;
-                    chosenStrategy = 'strategy_b';
-                } else {
+            // 【再平衡优先前置研判】
+            let isRebalanceTriggered = false;
+            if (rebalanceConfig && rebalanceThreshold > 0) {
+                for (const etf of etfs) {
+                    const price = datePrices[etf.code] || 0;
+                    if (price <= 0) continue;
+
+                    const currentRatio = (portfolio[etf.code].shares * price) / totalValue * 100;
+                    const targetRatio = activeTargetRatios[etf.code] || 0;
+                    const dev = Math.abs(currentRatio - targetRatio);
+
+                    if (dev >= rebalanceThreshold) {
+                        isRebalanceTriggered = true;
+                        break;
+                    }
+                }
+            }
+
+            if (isRebalanceTriggered && strategyPriority === 'rebalance' && (aResult || bResult)) {
+                // 【再平衡优先裁决】剧震偏离触发，压制这天策略 A/B 的调整信号，防止在波动底部割肉
+                logger.info(`[再平衡优先裁决] 日期 ${date}: 触发再平衡偏离，压制策略 A/B 信号`);
+                chosenResult = null;
+            } else {
+                if (aResult && bResult) {
+                    // 两者在同一交易日同时被触发，采用用户预设的优先级机制
+                    if (strategyPriority === 'strategy_b') {
+                        chosenResult = bResult;
+                        chosenStrategy = 'strategy_b';
+                    } else {
+                        chosenResult = aResult;
+                        chosenStrategy = 'strategy_a';
+                    }
+                } else if (aResult) {
                     chosenResult = aResult;
                     chosenStrategy = 'strategy_a';
+                } else if (bResult) {
+                    chosenResult = bResult;
+                    chosenStrategy = 'strategy_b';
                 }
-            } else if (aResult) {
-                chosenResult = aResult;
-                chosenStrategy = 'strategy_a';
-            } else if (bResult) {
-                chosenResult = bResult;
-                chosenStrategy = 'strategy_b';
             }
 
             // 如果有被选中的策略需要执行，立即执行一次性仓位对齐调仓
