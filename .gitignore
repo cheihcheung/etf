@@ -1,0 +1,7 @@
+/.idea
+/.svn
+/.vscode
+*.log
+.env
+/client/node_modules/*
+/server/node_modules/*
