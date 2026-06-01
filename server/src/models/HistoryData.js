@@ -1,14 +1,14 @@
-/**
+﻿/**
  * ==========================================================
- * ETF多资产动态配置策略系统 - ETF历史K线数据模型 (EtfHistory Model)
+ * ETF多资产动态配置策略系统 - 历史行情数据模型 (HistoryData Model)
  * ==========================================================
- * 映射物理表：etf_history
+ * 映射物理表：history_data
  * 提供历史走势的极速批量检索、大批量插入及行情最后时间获取服务。
  */
 const BaseModel = require('./BaseModel');
 
-class EtfHistory extends BaseModel {
-    static tableName = 'etf_history';
+class HistoryData extends BaseModel {
+    static tableName = 'history_data';
     static pk = 'id';
 
     /**
@@ -27,7 +27,7 @@ class EtfHistory extends BaseModel {
     }
 
     /**
-     * 获取标的最后一条历史K线数据的具体日期（用于行情自动补全起点的判断）
+     * 获取标的最有一条历史K线数据的具体日期（用于行情自动补全起点的判断）
      * @param {string} code ETF 证券代码
      * @returns {Promise<string|null>} 最新一条行情日期 (YYYY-MM-DD)
      */
@@ -38,4 +38,4 @@ class EtfHistory extends BaseModel {
     }
 }
 
-module.exports = EtfHistory;
+module.exports = HistoryData;

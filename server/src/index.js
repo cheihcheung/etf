@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 
@@ -40,20 +40,20 @@ async function startServer() {
     if (!dbConnected) {
         logger.warn('数据库连接失败，服务将以有限功能启动');
     } else {
-        // 自动静默检测并升级 etf_basic 物理表结构，防重自诊断
+        // 自动静默检测并升级 stock 物理表结构，防重自诊断
         try {
-            const columns = await db.query("SHOW COLUMNS FROM etf_basic LIKE 'is_enabled'");
+            const columns = await db.query("SHOW COLUMNS FROM stock LIKE 'is_enabled'");
             if (columns.length === 0) {
-                await db.execute("ALTER TABLE etf_basic ADD COLUMN is_enabled TINYINT DEFAULT 1 COMMENT '是否启用(1启用,0禁用)'");
-                logger.info('[DB] 成功为 etf_basic 表追加 is_enabled 启用状态字段');
+                await db.execute("ALTER TABLE stock ADD COLUMN is_enabled TINYINT DEFAULT 1 COMMENT '是否启用(1启用,0禁用)'");
+                logger.info('[DB] 成功为 stock 表追加 is_enabled 启用状态字段');
             }
-            const stepCols = await db.query("SHOW COLUMNS FROM etf_basic LIKE 'step_ratio'");
+            const stepCols = await db.query("SHOW COLUMNS FROM stock LIKE 'step_ratio'");
             if (stepCols.length === 0) {
-                await db.execute("ALTER TABLE etf_basic ADD COLUMN step_ratio DECIMAL(5,2) DEFAULT 5.00 COMMENT '加减比步长(%)'");
-                logger.info('[DB] 成功为 etf_basic 表追加 step_ratio 每档加减比步长字段');
+                await db.execute("ALTER TABLE stock ADD COLUMN step_ratio DECIMAL(5,2) DEFAULT 5.00 COMMENT '加减比步长(%)'");
+                logger.info('[DB] 成功为 stock 表追加 step_ratio 每档加减比步长字段');
             }
         } catch (alterError) {
-            logger.error(`[DB] 自动检测升级 etf_basic 表结构失败: ${alterError.message}`);
+            logger.error(`[DB] 自动检测升级 stock 表结构失败: ${alterError.message}`);
         }
     }
 

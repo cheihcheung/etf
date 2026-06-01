@@ -1,18 +1,18 @@
-/**
+﻿/**
  * ==========================================================
- * ETF多资产动态配置策略系统 - ETF基础数据模型 (EtfBasic Model)
+ * ETF多资产动态配置策略系统 - ETF标的模型 (Stock Model)
  * ==========================================================
- * 映射物理表：etf_basic
+ * 映射物理表：stock
  * 承载标的资产的实时行情行情同步、配置初始配比维护等核心实体方法。
  */
 const BaseModel = require('./BaseModel');
 
-class EtfBasic extends BaseModel {
-    static tableName = 'etf_basic';
+class Stock extends BaseModel {
+    static tableName = 'stock';
     static pk = 'id';
 
     /**
-     * 联表聚合获取所有 ETF 及其行情记录起止范围 (完美平替 routes/etf.js 中的 SQL GROUP BY 聚合)
+     * 联表聚合获取所有 ETF 及其行情记录起止范围
      * @returns {Promise<Array>}
      */
     static async getWithHistoryRange() {
@@ -20,8 +20,8 @@ class EtfBasic extends BaseModel {
             SELECT b.*,
                    MIN(h.trade_date) AS history_start,
                    MAX(h.trade_date) AS history_end
-            FROM etf_basic b
-            LEFT JOIN etf_history h ON b.code = h.etf_code
+            FROM stock b
+            LEFT JOIN history_data h ON b.code = h.etf_code
             GROUP BY b.id, b.code, b.name, b.asset_type, b.current_price, b.change_pct, b.update_time, b.initial_ratio
             ORDER BY b.asset_type, b.code
         `;
@@ -54,4 +54,4 @@ class EtfBasic extends BaseModel {
     }
 }
 
-module.exports = EtfBasic;
+module.exports = Stock;

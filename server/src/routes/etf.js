@@ -1,11 +1,11 @@
-const express = require('express');
+﻿const express = require('express');
 const router = express.Router();
 const spider = require('../services/spider');
 const logger = require('../utils/logger');
 
 // 导入全新 MVC 模型层实体
-const EtfBasic = require('../models/EtfBasic');
-const EtfHistory = require('../models/EtfHistory');
+const Stock = require('../models/Stock');
+const HistoryData = require('../models/HistoryData');
 
 /**
  * 辅助函数：根据起止日期以年份进行切片（用于历史行情抓取补全防超时）
@@ -37,7 +37,7 @@ function splitYears(startDate, endDate) {
 router.get('/list', async (req, res) => {
     try {
         // 完美调用模型层内聚的高级聚合查询方法，杜绝 routes 层裸写 JOIN GROUP BY 的潜在报错
-        const etfs = await EtfBasic.getWithHistoryRange();
+        const etfs = await Stock.getWithHistoryRange();
         res.json({ success: true, data: etfs });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -56,13 +56,13 @@ router.post('/add', async (req, res) => {
         }
         
         // 使用 Model 查重
-        const existing = await EtfBasic.findOne({ code });
+        const existing = await Stock.findOne({ code });
         if (existing) {
             return res.status(400).json({ success: false, message: '该ETF已存在' });
         }
         
         // 使用 Model 一键创建
-        await EtfBasic.create({
+        await Stock.create({
             code,
             name,
             asset_type: assetType,
@@ -72,7 +72,7 @@ router.post('/add', async (req, res) => {
         // 抓取实时行情并利用 Model 快速同步
         const quote = await spider.fetchETFRealTimeQuote(code);
         if (quote) {
-            await EtfBasic.syncPrice(code, quote.currentPrice, quote.changePct);
+            await Stock.syncPrice(code, quote.currentPrice, quote.changePct);
         }
         
         logger.info(`添加ETF: ${code} ${name}`);
@@ -91,7 +91,7 @@ router.put('/update', async (req, res) => {
         const { code, name, assetType, initialRatio } = req.body;
         
         // 利用 Model 进行条件更新，消灭 Raw SQL
-        await EtfBasic.updateWhere({ code }, [], {
+        await Stock.updateWhere({ code }, [], {
             name: name,
             asset_type: assetType,
             initial_ratio: initialRatio !== undefined ? parseFloat(initialRatio) : 0.0000
@@ -110,11 +110,11 @@ router.delete('/delete/:code', async (req, res) => {
     try {
         const { code } = req.params;
         
-        // 核心适配：直接从 EtfBasic 模型中查询该 ETF 现在的占比
-        const ratioCheck = await EtfBasic.findOne({ code });
+        // 核心适配：直接从 Stock 模型中查询该 ETF 现在的占比
+        const ratioCheck = await Stock.findOne({ code });
         if (ratioCheck && parseFloat(ratioCheck.initial_ratio) > 0) {
             // 计算剔除当前标的后，其他标的的累计占比
-            const allEtfs = await EtfBasic.findAll();
+            const allEtfs = await Stock.findAll();
             const otherTotal = allEtfs
                 .filter(e => e.code !== code)
                 .reduce((sum, e) => sum + parseFloat(e.initial_ratio || 0), 0);
@@ -125,7 +125,7 @@ router.delete('/delete/:code', async (req, res) => {
         }
         
         // 利用 Model 清除标的基础数据即可，回测持仓在内存中虚拟维护
-        await EtfBasic.deleteWhere({ code });
+        await Stock.deleteWhere({ code });
         
         logger.info(`删除ETF: ${code}`);
         res.json({ success: true, message: '删除成功' });
@@ -143,7 +143,7 @@ router.get('/quote/:code', async (req, res) => {
         const { code } = req.params;
         const quote = await spider.fetchETFRealTimeQuote(code);
         if (quote) {
-            await EtfBasic.syncPrice(code, quote.currentPrice, quote.changePct);
+            await Stock.syncPrice(code, quote.currentPrice, quote.changePct);
         }
         res.json({ success: true, data: quote });
     } catch (error) {
@@ -174,7 +174,7 @@ router.get('/search', async (req, res) => {
  */
 router.post('/sync-all', async (req, res) => {
     try {
-        const etfs = await EtfBasic.findAll();
+        const etfs = await Stock.findAll();
         let successCount = 0;
         let historySyncedCount = 0;
         const today = new Date(new Date().getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -183,12 +183,12 @@ router.post('/sync-all', async (req, res) => {
             // 1. 同步最新实时报价
             const quote = await spider.fetchETFRealTimeQuote(etf.code);
             if (quote) {
-                await EtfBasic.syncPrice(etf.code, quote.currentPrice, quote.changePct);
+                await Stock.syncPrice(etf.code, quote.currentPrice, quote.changePct);
                 successCount++;
             }
 
-            // 2. 面向 EtfHistory 模型层判断是否缺漏近期历史 K 线数据，进行自动防超时补齐
-            const lastDate = await EtfHistory.getLastRecordDate(etf.code);
+            // 2. 面向 HistoryData 模型层判断是否缺漏近期历史 K 线数据，进行自动防超时补齐
+            const lastDate = await HistoryData.getLastRecordDate(etf.code);
             if (lastDate) {
                 const lastDateObj = new Date(lastDate);
                 const nextDay = new Date(lastDateObj.getTime() + 24 * 3600 * 1000);
@@ -199,16 +199,16 @@ router.post('/sync-all', async (req, res) => {
                     if (missingData && missingData.length > 0) {
                         for (const row of missingData) {
                             // 利用 Model 一键安全保存行情
-                            const existingK = await EtfHistory.findOne({
+                            const existingK = await HistoryData.findOne({
                                 etf_code: etf.code,
                                 trade_date: row.tradeDate
                             });
                             if (existingK) {
-                                await EtfHistory.update(existingK.id, {
+                                await HistoryData.update(existingK.id, {
                                     close_price: row.closePrice
                                 });
                             } else {
-                                await EtfHistory.create({
+                                await HistoryData.create({
                                     etf_code: etf.code,
                                     trade_date: row.tradeDate,
                                     open_price: row.openPrice,
@@ -245,8 +245,8 @@ router.get('/history/:code', async (req, res) => {
             return res.status(400).json({ success: false, message: '请选择起止日期' });
         }
         
-        // 完美调用 EtfHistory 模型层方法获取本地缓存，剥离裸写 SQL
-        const dbData = await EtfHistory.getHistoryByRange(code, startDate, endDate);
+        // 完美调用 HistoryData 模型层方法获取本地缓存，剥离裸写 SQL
+        const dbData = await HistoryData.getHistoryByRange(code, startDate, endDate);
         if (dbData.length > 0) {
             const data = dbData.map((r) => {
                 let tradeDate;
@@ -291,9 +291,9 @@ router.post('/sync-history', async (req, res) => {
         let etfs;
         if (codes && codes.length > 0) {
             // 模型化批量获取
-            etfs = await EtfBasic.findAll(`code IN (${codes.map(() => '?').join(', ')})`, codes);
+            etfs = await Stock.findAll(`code IN (${codes.map(() => '?').join(', ')})`, codes);
         } else {
-            etfs = await EtfBasic.findAll();
+            etfs = await Stock.findAll();
         }
         
         if (etfs.length === 0) {
@@ -308,13 +308,13 @@ router.post('/sync-history', async (req, res) => {
                 if (data.length > 0) {
                     for (const row of data) {
                         // 使用 Model 查询及一键双向存储，消灭原繁杂 ON DUPLICATE KEY UPDATE 语句
-                        const existingK = await EtfHistory.findOne({
+                        const existingK = await HistoryData.findOne({
                             etf_code: etf.code,
                             trade_date: row.tradeDate
                         });
                         
                         if (existingK) {
-                            await EtfHistory.update(existingK.id, {
+                            await HistoryData.update(existingK.id, {
                                 open_price: row.openPrice,
                                 close_price: row.closePrice,
                                 high_price: row.highPrice,
@@ -323,7 +323,7 @@ router.post('/sync-history', async (req, res) => {
                                 change_pct: row.changePct
                             });
                         } else {
-                            await EtfHistory.create({
+                            await HistoryData.create({
                                 etf_code: etf.code,
                                 trade_date: row.tradeDate,
                                 open_price: row.openPrice,

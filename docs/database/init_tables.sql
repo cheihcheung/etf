@@ -1,11 +1,11 @@
-/*
+﻿/*
  Navicat Premium Dump SQL
 
  Source Server         : 本地
  Source Server Type    : MySQL
  Source Server Version : 80012 (8.0.12)
  Source Host           : localhost:3306
- Source Schema         : etf_strategy
+ Source Schema         : etf
 
  Target Server Type    : MySQL
  Target Server Version : 80012 (8.0.12)
@@ -37,10 +37,10 @@ CREATE TABLE `backtest_results`  (
 ) ENGINE = InnoDB AUTO_INCREMENT = 141 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '回测结果表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
--- Table structure for etf_basic
+-- Table structure for stock
 -- ----------------------------
-DROP TABLE IF EXISTS `etf_basic`;
-CREATE TABLE `etf_basic`  (
+DROP TABLE IF EXISTS `stock`;
+CREATE TABLE `stock`  (
   `id` int(11) NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'ETF代码',
   `name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'ETF名称',
@@ -49,16 +49,18 @@ CREATE TABLE `etf_basic`  (
   `change_pct` decimal(10, 4) NULL DEFAULT 0.0000 COMMENT '涨跌幅(%)',
   `update_time` datetime NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `initial_ratio` decimal(10, 4) NOT NULL DEFAULT 0.0000 COMMENT '初始配置占比(%)',
+  `is_enabled` tinyint(4) NULL DEFAULT 1 COMMENT '是否启用(1启用,0禁用)',
+  `step_ratio` decimal(5, 2) NULL DEFAULT 5.00 COMMENT '加减比步长(%)',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_code`(`code` ASC) USING BTREE,
   INDEX `idx_asset_type`(`asset_type` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'ETF基础信息表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'ETF标的表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
--- Table structure for etf_history
+-- Table structure for history_data
 -- ----------------------------
-DROP TABLE IF EXISTS `etf_history`;
-CREATE TABLE `etf_history`  (
+DROP TABLE IF EXISTS `history_data`;
+CREATE TABLE `history_data`  (
   `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `etf_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'ETF代码',
   `trade_date` date NOT NULL COMMENT '交易日期',
@@ -72,7 +74,7 @@ CREATE TABLE `etf_history`  (
   UNIQUE INDEX `uk_etf_date`(`etf_code` ASC, `trade_date` ASC) USING BTREE,
   INDEX `idx_trade_date`(`trade_date` ASC) USING BTREE,
   INDEX `idx_etf_code`(`etf_code` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 9739 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'ETF历史行情数据表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 9739 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '历史行情数据表' ROW_FORMAT = Dynamic;
 
 
 -- ----------------------------

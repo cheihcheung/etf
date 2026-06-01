@@ -1,10 +1,10 @@
-const logger = require('../utils/logger');
+﻿const logger = require('../utils/logger');
 const spider = require('./spider');
 const { calcAnnualReturn, calcMaxDrawdown, calcSharpeRatio, calcVolatility } = require('../utils/helpers');
 
 // 导入全新 MVC 模型层实体
-const EtfBasic = require('../models/EtfBasic');
-const EtfHistory = require('../models/EtfHistory');
+const Stock = require('../models/Stock');
+const HistoryData = require('../models/HistoryData');
 const TradeRecord = require('../models/TradeRecord');
 const BacktestResult = require('../models/BacktestResult');
 
@@ -29,7 +29,7 @@ async function runBacktest(params) {
 
     // 0. 极其关键的静默自清洗：在回测前自动拉取所有被禁用的 ETF 资产物理剥离！
     try {
-        const disabledEtfs = await EtfBasic.findAll("is_enabled = 0");
+        const disabledEtfs = await Stock.findAll("is_enabled = 0");
         const disabledCodes = (disabledEtfs || []).map(e => e.code);
         if (disabledCodes.length > 0) {
             etfs = etfs.filter(e => !disabledCodes.includes(e.code));
@@ -45,7 +45,7 @@ async function runBacktest(params) {
     // 0.1 加载专属加减比步长映射
     const stepRatios = {};
     try {
-        const allEtfs = await EtfBasic.findAll();
+        const allEtfs = await Stock.findAll();
         (allEtfs || []).forEach(e => {
             stepRatios[e.code] = parseFloat(e.step_ratio !== null && e.step_ratio !== undefined ? e.step_ratio : 5.0);
         });
@@ -62,7 +62,7 @@ async function runBacktest(params) {
     // 1. 精准找到「沪深300」ETF 代码（使用 Model 优雅拉取）
     let hs300Code = '510300'; // 默认值，经数据库确认
     try {
-        const hs300Etf = await EtfBasic.findOne("name LIKE '%沪深300%'");
+        const hs300Etf = await Stock.findOne("name LIKE '%沪深300%'");
         if (hs300Etf) {
             hs300Code = hs300Etf.code;
             logger.info(`基准代码锁定: ${hs300Code}`);
@@ -75,7 +75,7 @@ async function runBacktest(params) {
     const historyDataMap = {};
     for (const etf of etfs) {
         try {
-            const dbRows = await EtfHistory.getHistoryByRange(etf.code, startDate, endDate);
+            const dbRows = await HistoryData.getHistoryByRange(etf.code, startDate, endDate);
             if (dbRows && dbRows.length > 0) {
                 historyDataMap[etf.code] = dbRows.map(d => {
                     let tradeDate;
@@ -107,7 +107,7 @@ async function runBacktest(params) {
     // 3. 从本地数据库读取基准数据，使用 Model 层优雅检索
     let hs300History = [];
     try {
-        const dbRows = await EtfHistory.getHistoryByRange(hs300Code, startDate, endDate);
+        const dbRows = await HistoryData.getHistoryByRange(hs300Code, startDate, endDate);
         if (dbRows && dbRows.length > 0) {
             hs300History = dbRows.map(r => {
                 let tradeDate;

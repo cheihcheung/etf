@@ -1,4 +1,4 @@
-# API 接口文档
+﻿# API 接口文档
 
 > 更新时间: 2026 年 5 月 31 日
 
@@ -117,7 +117,7 @@
 GET /api/etf/list
 ```
 
-**响应说明**: 通过 `etf_basic` JOIN `etf_history` 聚合查询，自动附带历史 K 线起止日期范围。
+**响应说明**: 通过 `stock` JOIN `history_data` 聚合查询，自动附带历史 K 线起止日期范围。
 
 **响应示例**：
 
@@ -333,7 +333,7 @@ GET /api/etf/market-list
 GET /api/config/initial-ratios
 ```
 
-**说明**: 从 `etf_basic` 表中读取，`isEnabled` 由 `is_enabled` 字段计算（NULL/undefined/非0均视为 true）；`stepRatio` 若数据库为 NULL 则默认返回 `5.0`。
+**说明**: 从 `stock` 表中读取，`isEnabled` 由 `is_enabled` 字段计算（NULL/undefined/非0均视为 true）；`stepRatio` 若数据库为 NULL 则默认返回 `5.0`。
 
 **响应示例**：
 

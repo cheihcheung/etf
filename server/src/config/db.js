@@ -1,4 +1,4 @@
-// ==========================================
+﻿// ==========================================
 // ETF多资产动态配置策略系统 - 数据库底座与连接池模块
 // ==========================================
 const mysql = require('mysql2/promise');
@@ -9,8 +9,8 @@ const pool = mysql.createPool({
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT) || 3306,
     user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || 'root',
-    database: process.env.DB_NAME || 'etf_strategy',
+    password: process.env.DB_PASSWORD || 'rootMG2024',
+    database: process.env.DB_NAME || 'etf',
     connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 20, // 最大连接限制，默认 20
     waitForConnections: true, // 连接不足时是否等待
     queueLimit: 0,            // 排队队列无上限限制

@@ -1,9 +1,9 @@
-const express = require('express');
+﻿const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
 
 // 导入 MVC 数据模型层 (已物理删去 GlobalConfig 模型)
-const EtfBasic = require('../models/EtfBasic');
+const Stock = require('../models/Stock');
 const StrategyAConfig = require('../models/StrategyAConfig');
 const StrategyBConfig = require('../models/StrategyBConfig');
 
@@ -13,7 +13,7 @@ const StrategyBConfig = require('../models/StrategyBConfig');
  */
 router.get('/initial-ratios', async (req, res) => {
     try {
-        const etfs = await EtfBasic.findAll();
+        const etfs = await Stock.findAll();
         const ratios = etfs.map(e => ({
             etfCode: e.code,
             name: e.name,
@@ -46,10 +46,10 @@ router.put('/initial-ratios', async (req, res) => {
             return res.status(400).json({ success: false, message: `当前启用的资产总占比为${activeTotal.toFixed(2)}%，不能超过100%` });
         }
         
-        await EtfBasic.updateWhere('1 = 1', [], { initial_ratio: 0.0000 });
+        await Stock.updateWhere('1 = 1', [], { initial_ratio: 0.0000 });
         for (const r of ratios) {
-            await EtfBasic.updateRatio(r.etfCode, r.isEnabled ? parseFloat(r.ratio) : 0);
-            await EtfBasic.updateWhere({ code: r.etfCode }, [], {
+            await Stock.updateRatio(r.etfCode, r.isEnabled ? parseFloat(r.ratio) : 0);
+            await Stock.updateWhere({ code: r.etfCode }, [], {
                 is_enabled: r.isEnabled ? 1 : 0,
                 step_ratio: parseFloat(r.stepRatio || 5.0)
             });
@@ -231,7 +231,7 @@ router.put('/strategy-b', async (req, res) => {
  */
 router.get('/etf-types', async (req, res) => {
     try {
-        const etfs = await EtfBasic.findAll();
+        const etfs = await Stock.findAll();
         const existingTypes = etfs.map(e => e.asset_type).filter(Boolean);
         const defaultTypes = ['股票类', '债券类', '红利类', '商品类', '黄金类'];
         const allTypes = [...new Set([...defaultTypes, ...existingTypes])];
