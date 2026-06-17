@@ -4,6 +4,18 @@
  * ==========================================================
  * 映射物理表：strategy_a_config
  * 承载策略 A 的判定档位、回撤反弹阈值及配比 JSON，提供扁平化读取与一键保存。
+ *
+ * 【表结构关键字段】
+ *   - trigger_type : 触发类型 enum('drawdown','rally') —— drawdown=回撤加仓档，rally=反弹减仓档
+ *   - level_order  : 档位序号(1,2,3...)，数字越大档位越深
+ *   - threshold    : 触发阈值(回撤百分比，如 10 表示回撤10%触发该档)
+ *   - ratios       : 该档的目标配比 JSON，格式 {etfCode: 倍数}
+ *
+ * ⚠️ 【ratios 倍数语义(重要)】
+ *   ratios 中存的是「倍数」而非实际占比！回测引擎 evaluateStrategyA 会按倍数模型换算：
+ *     实际目标占比 = initialRatio[etfCode] + ratios[etfCode] × step_ratio[etfCode]
+ *   例如：某ETF初始30%、倍数=2、step_ratio=5%，则该档实际占比 = 30 + 2×5 = 40%
+ *   数据库存的是 {etfCode: 倍数}，路由层 config.js 的 formatRatios 会转成 [{etfCode, targetRatio}] 数组。
  */
 const BaseModel = require('./BaseModel');
 

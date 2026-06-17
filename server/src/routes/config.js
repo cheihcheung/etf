@@ -1,4 +1,21 @@
-﻿const express = require('express');
+﻿/**
+ * ==========================================================================================
+ * 策略与配比配置接口路由 (/api/config)
+ * ==========================================================================================
+ * 提供初始配比、策略A/策略B 档位配置、资产类型枚举的读写接口。
+ *
+ * 【接口清单】
+ *   GET/PUT /initial-ratios : 获取/更新各ETF初始配比(校验启用资产总和≤100%)
+ *   GET/PUT /strategy-a     : 策略A(回撤分档)配置
+ *   GET/PUT /strategy-b     : 策略B(年化中枢偏离)配置
+ *   GET     /etf-types      : 资产分类类型列表
+ *
+ * ⚠️ 【ratios 数据结构转换】
+ *   数据库存的是 JSON 对象 {etfCode: 倍数}，但前端和回测引擎用的是数组 [{etfCode, targetRatio}]。
+ *   formatRatios(读) 和 parseToDbRatios(写) 负责两种格式互转。
+ * ==========================================================================================
+ */
+const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
 
@@ -62,7 +79,13 @@ router.put('/initial-ratios', async (req, res) => {
     }
 });
 
-// JSON比率转换助手
+/**
+ * JSON比率转换助手：把数据库的 JSON 对象格式转成前端使用的数组格式
+ * 数据库格式: { '510300': 2, '511260': 1 } (倍数)
+ * 前端格式  : [{ etfCode: '510300', targetRatio: 2 }, ...]
+ * @param {string|Object} ratiosJson - 数据库的 ratios 字段(JSON字符串或对象)
+ * @returns {Array<{etfCode,targetRatio}>}
+ */
 const formatRatios = (ratiosJson) => {
     const parsed = typeof ratiosJson === 'string' ? JSON.parse(ratiosJson) : (ratiosJson || {});
     return Object.keys(parsed).map(code => ({
@@ -71,6 +94,13 @@ const formatRatios = (ratiosJson) => {
     }));
 };
 
+/**
+ * JSON比率转换助手：把前端数组格式转回数据库的 JSON 对象格式(用于写入)
+ * 前端格式  : [{ etfCode: '510300', targetRatio: 2 }, ...]
+ * 数据库格式: { '510300': 2 } (JSON字符串)
+ * @param {Array<{etfCode,targetRatio}>} ratiosArr - 前端的 ratios 数组
+ * @returns {string} JSON 字符串
+ */
 const parseToDbRatios = (ratiosArr) => {
     const ratiosObj = {};
     (ratiosArr || []).forEach(r => {

@@ -9,13 +9,15 @@
  * 2. 日常再平衡阈值 [1.0%, 2.0%, 3.0%]
  * 3. 策略A、策略B、日常平衡的 8 种复合开关配置
  * 共 504 种高维资产配置场景。
- * 
+ *
  * 评估指标：
  * - 年化收益率 (Annual Return)
  * - 最大回撤度 (Max Drawdown)
  * - 年化波动率 (Volatility)
  * - 夏普比率 (Sharpe Ratio, 收益/波动性价比)
  * - 卡玛比率 (Calmar Ratio, 收益/最大回撤性价比)
+ *
+ * 输出：server/output/optimize_results.csv (BOM UTF-8, 可直接用 Excel 打开)
  */
 const db = require('../src/config/db');
 const backtestService = require('../src/services/backtest');
@@ -32,9 +34,15 @@ const logPrefix = () => `[OPTIMIZER ${new Date().toLocaleTimeString()}]`;
         console.log(`================================================================================`);
 
         // --------------------------------------------------------
-        // 1. 动态自适应拉取数据库中当前激活的全部三种 ETF 标的
+        // 1. 动态自适应拉取数据库中当前激活的全部 ETF 标的
         // --------------------------------------------------------
-        const dbEtfs = await db.query("SELECT code, name, asset_type FROM etf_basic");
+        // [已修复] 原代码查询了不存在的表 'etf_basic'，导致脚本启动即崩溃。
+        //   实际的 ETF 标的表名是 'stock'（对应 ORM 模型 server/src/models/Stock.js）。
+        //   修复原因：数据库 schema 中从未创建过 etf_basic 表，所有 ETF 基本信息
+        //   都统一存储在 stock 表中（包含 code/name/asset_type/initial_ratio/
+        //   is_enabled/step_ratio/annual_return 等字段）。
+        //   修复方式：将表名 'etf_basic' 改为 'stock'。
+        const dbEtfs = await db.query("SELECT code, name, asset_type FROM stock");
         if (!dbEtfs || dbEtfs.length < 3) {
             console.error(`${logPrefix()} ❌ 寻优失败：数据库中配置的资产标的不足3个，请先同步配置。`);
             process.exit(1);
@@ -52,9 +60,11 @@ const logPrefix = () => `[OPTIMIZER ${new Date().toLocaleTimeString()}]`;
         // --------------------------------------------------------
         // 2. 从数据库加载用户当前配置好的策略A与策略B档位参数
         // --------------------------------------------------------
+        // 策略档位从数据库的 strategy_a_config / strategy_b_config 表读取，
+        // ratios 从 JSON 对象 {code: 倍数} 转成回测引擎需要的数组 [{etfCode, targetRatio}]
         console.log(`\n${logPrefix()} 正在从数据库加载策略A与策略B配置档位数据...`);
-        
-        // 加载策略A档位
+
+        // 加载策略A回撤档位(只取 drawdown 类型，忽略 rally 类型)
         const aLevels = await db.query("SELECT * FROM strategy_a_config WHERE trigger_type = 'drawdown' ORDER BY level_order ASC");
         const drawdownLevels = aLevels.map(l => {
             let parsed = {};
@@ -86,6 +96,8 @@ const logPrefix = () => `[OPTIMIZER ${new Date().toLocaleTimeString()}]`;
         // --------------------------------------------------------
         // 3. 网格化自适应生成所有待遍历的资产比例组合
         // --------------------------------------------------------
+        // 以 20% 为步长遍历 x+y+z=100 的所有非负整数解(组合数取决于标的数量)
+        // 例如 3 只标的：21 种组合 × 3 阈值 × 8 开关 = 504 种场景
         const code1 = etfs[0].code;
         const code2 = etfs[1].code;
         const code3 = etfs[2].code;
@@ -105,7 +117,7 @@ const logPrefix = () => `[OPTIMIZER ${new Date().toLocaleTimeString()}]`;
         // 再平衡偏差阈值列表
         const rebalanceThresholds = [1.0, 2.0, 3.0];
 
-        // 策略开关组合列表 (2^3 = 8种组合)
+        // 策略开关组合列表：策略A × 策略B × 再平衡 = 2^3 = 8 种笛卡尔积
         const strategyCombos = [];
         const flags = [true, false];
         for (const a of flags) {
@@ -121,8 +133,9 @@ const logPrefix = () => `[OPTIMIZER ${new Date().toLocaleTimeString()}]`;
         console.log(`${logPrefix()} 🎯 即将开启总共 ${totalRuns} 轮网格回测寻优...`);
 
         // --------------------------------------------------------
-        // 4. 全速网格测试流水线
+        // 4. 全速网格测试流水线(三层嵌套循环，顺序遍历所有组合)
         // --------------------------------------------------------
+        // 每个组合调用 runBacktest 并强制 isOptimization:true(防爆盘，不写 daily_detail 和流水)
         const results = [];
         let counter = 0;
 

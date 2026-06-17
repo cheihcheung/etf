@@ -152,6 +152,30 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * ============================================================================
+ * 文件：EtfConfig.vue — ETF 标的管理 + 初始比例配置页面
+ * ============================================================================
+ *
+ * 【页面功能】
+ *   1. ETF 标的管理（CRUD）：添加/编辑/删除 ETF，查看代码、名称、资产类型、当前价格、涨跌幅等
+ *   2. 同步行情：一键从腾讯接口拉取所有 ETF 的最新价格
+ *   3. 同步历史数据：选择日期区间和 ETF，从腾讯接口批量拉取历史日线数据
+ *   4. 初始比例配置：为每个 ETF 设置初始配比、步长比例、是否启用
+ *      — 总占比不能超过 100%，超过时保存按钮禁用并显示红色警告
+ *      — "补满"按钮：将当前 ETF 的配比设为剩余额度，快速凑满 100%
+ *      — 禁用某 ETF 时，其配比自动归零，且回测时不纳入组合
+ *
+ * 【数据关联】
+ *   ratioList 将 ETF 列表与 initialRatios 配置进行"左连接"合并：
+ *     etfList LEFT JOIN savedRatios ON code = etfCode
+ *   合并后的每行包含：etf_code / name / asset_type / ratio / isEnabled / stepRatio
+ *
+ * 【"补满"逻辑】
+ *   setMax(row) 计算当前总占比与 100% 的差额，
+ *   将差额加到当前行的 ratio 上（前提是当前总占比 < 100% 且 ETF 已启用）。
+ *   例如当前总和 85%，点击某 ETF 的"补满"→ 该 ETF ratio += 15%
+ */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus, Refresh, DataBoard } from '@element-plus/icons-vue'
@@ -315,12 +339,18 @@ const assetTypeTag = (type: string): 'primary' | 'success' | 'warning' | 'info' 
 const ratioList = ref<any[]>([])
 const savingRatios = ref(false)
 
+/** 总占比（仅统计已启用的 ETF 配比之和），超过 100% 时显示红色警告并禁用保存 */
 const totalRatioSum = computed(() => {
 	return ratioList.value
 		.filter((r: any) => r.isEnabled !== false)
 		.reduce((sum: number, r: any) => sum + parseFloat(r.ratio || 0), 0)
 })
 
+/**
+ * 加载初始比例配置并与 ETF 列表合并
+ * 后端返回的 savedRatios 数组每项包含 etfCode / ratio / isEnabled / stepRatio
+ * 以 ETF 列表为基础做左连接，缺失的配置项使用默认值（ratio=0, isEnabled=true, stepRatio=5.0）
+ */
 const loadRatios = async () => {
 	try {
 		const ratioRes = await configApi.getInitialRatios()
@@ -341,6 +371,10 @@ const loadRatios = async () => {
 	}
 }
 
+/**
+ * "补满"操作：将当前 ETF 的配比设为"剩余额度 + 当前值"
+ * 前置条件：ETF 必须启用，且总占比尚未超过 100%
+ */
 const setMax = (row: any) => {
 	if (!row.isEnabled) return
 	const currentSum = totalRatioSum.value
@@ -350,6 +384,10 @@ const setMax = (row: any) => {
 	}
 }
 
+/**
+ * 保存初始比例配置到后端
+ * 禁用的 ETF 的 ratio 会被强制设为 0
+ */
 const saveRatios = async () => {
 	savingRatios.value = true
 	try {

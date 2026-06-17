@@ -168,6 +168,38 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * ============================================================================
+ * 文件：StrategyConfig.vue — 策略A / 策略B 档位配置页面
+ * ============================================================================
+ *
+ * 【页面功能】
+ *   1. 策略A（历史最高点回撤档位策略）— 配置 drawdownLevels（回撤触发档位列表）
+ *   2. 策略B（长期年化中枢偏离估值策略）— 配置 overvaluedLevels（高估档位）和 undervaluedLevels（低估档位）
+ *
+ * 【核心概念 — 倍数模型（Multiplier Model）】
+ *   每个档位的 ratios 数组中存储的不是"实际配比百分比"，而是"倍数（multiplier）"。
+ *   实际配比的计算公式为：
+ *     actual_ratio = initialRatio + multiplier × stepRatio
+ *   其中：
+ *     initialRatio — 该 ETF 的初始配比（如 25%）
+ *     multiplier   — 用户在本页面配置的"偏离"值（如 -1, 0, 2）
+ *     stepRatio    — 该 ETF 的步长比例（如 5%），存储在 initialRatios 表的 step_ratio 字段
+ *
+ *   示例：某 ETF 初始 25%，stepRatio=5%，multiplier=-1
+ *     → actual_ratio = 25 + (-1) × 5 = 20%
+ *
+ * 【配平约束（零和偏离）】
+ *   同一档位内，所有 ETF 的 multiplier × stepRatio 之和必须等于 0。
+ *   即 Σ(multiplier_i × stepRatio_i) = 0
+ *   这保证：所有 ETF 的 actual_ratio 之和 = 100%（100 + offsetSum = 100）
+ *   前端在保存前会验证此约束，不满足时弹出警告并阻止保存。
+ *
+ * 【数据流向】
+ *   页面加载 → loadAllConfig() 并行获取 ETF 列表 + 策略A配置 + 策略B配置 + 初始比例
+ *   保存 → PUT /api/config/strategy-a 或 /api/config/strategy-b
+ *   → 后端 config 路由调用 formatRatios() 将倍数转为 DB 存储格式后存入 strategy_a_config 表
+ */
 import { ref, reactive, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { configApi, etfApi } from '../api'
@@ -175,12 +207,30 @@ import { ElMessage } from 'element-plus'
 import type { StrategyAConfig, StrategyBConfig, StrategyLevel, RebalanceConfig } from '../types'
 import { formatDateTime, getTodayString } from '@/utils'
 
+// ===================== 基础数据 =====================
+
+/** 已启用的 ETF 列表（过滤掉 is_enabled=false 的 ETF） */
 const etfList = ref<any[]>([])
+/** 各 ETF 的初始配比映射 {etfCode: initialRatio}，例如 {'510300': 25} */
 const initialRatiosMap = ref<Record<string, number>>({})
+/** 各 ETF 的步长比例映射 {etfCode: stepRatio}，默认 5.0% */
 const stepRatiosMap = ref<Record<string, number>>({})
+/** 策略A 保存中状态 */
 const savingA = ref(false)
+/** 策略B 保存中状态 */
 const savingB = ref(false)
 
+// ===================== 策略配置对象 =====================
+
+/**
+ * 策略A 配置（回撤档位策略）
+ *   drawdownLevels — 回撤触发档位数组，每档包含：
+ *     levelOrder  — 档位序号
+ *     threshold   — 回撤阈值（百分比），如 5 表示从最高点回撤 5% 时触发
+ *     ratios      — 各 ETF 的偏离倍数数组 [{etfCode, targetRatio}, ...]
+ *   rallyLevels   — 反弹档位（当前前端置空，暂未使用）
+ *   resetOnHigh   — 创新高时是否自动复位回撤高水位
+ */
 const strategyA = reactive<StrategyAConfig>({
 	enabled: true,
 	resetOnHigh: true,
@@ -188,6 +238,13 @@ const strategyA = reactive<StrategyAConfig>({
 	rallyLevels: [],
 })
 
+/**
+ * 策略B 配置（年化中枢偏离策略）
+ *   centralAnnual      — 年化收益中枢参考值（百分比）
+ *   overvaluedLevels   — 高估档位数组（年化收益超出中枢时触发减仓）
+ *   undervaluedLevels  — 低估档位数组（年化收益低于中枢时触发加仓）
+ *   每档结构与策略A类似：{levelOrder, threshold, ratios}
+ */
 const strategyB = reactive<StrategyBConfig>({
 	enabled: true,
 	centralAnnual: 9.0,
@@ -195,11 +252,26 @@ const strategyB = reactive<StrategyBConfig>({
 	undervaluedLevels: [],
 })
 
+// ===================== 倍数读写工具函数 =====================
+
+/**
+ * 从档位的 ratios 数组中读取某个 ETF 的偏离倍数
+ * @param ratios  档位的 ratios 数组 [{etfCode, targetRatio}, ...]
+ * @param etfCode 要查询的 ETF 代码
+ * @returns 该 ETF 的 targetRatio（倍数），如果未配置则返回 0
+ */
 const getLevelRatio = (ratios: any[], etfCode: string) => {
 	const found = ratios.find((r) => r.etfCode === etfCode)
 	return found ? found.targetRatio : 0
 }
 
+/**
+ * 设置某个 ETF 在某档位中的偏离倍数
+ * 如果该 ETF 已存在于 ratios 数组中则更新，否则新增一条记录
+ * @param ratios   档位的 ratios 数组（会被原地修改）
+ * @param etfCode  ETF 代码
+ * @param value    要设置的倍数值（可为负数，表示减仓）
+ */
 const setLevelRatio = (ratios: any[], etfCode: string, value: number) => {
 	const found = ratios.find((r) => r.etfCode === etfCode)
 	if (found) {
@@ -209,6 +281,16 @@ const setLevelRatio = (ratios: any[], etfCode: string, value: number) => {
 	}
 }
 
+// ===================== 配比校验计算 =====================
+
+/**
+ * 计算某档位的实际总占比（百分比）
+ * 公式：100 + Σ(multiplier_i × stepRatio_i)
+ * 当偏离配平时（offsetSum=0），总占比恰好等于 100%
+ *
+ * @param ratios 档位的 ratios 数组
+ * @returns 实际总占比，例如 100.00 表示完美配平
+ */
 const calcLevelSum = (ratios: any[]) => {
 	const offsetSum = ratios.reduce((sum, r) => {
 		const step = stepRatiosMap.value[r.etfCode] || 5.0
@@ -218,6 +300,14 @@ const calcLevelSum = (ratios: any[]) => {
 	return 100 + offsetSum
 }
 
+/**
+ * 计算某档位的偏离值总和（不含基准 100%）
+ * 公式：Σ(multiplier_i × stepRatio_i)
+ * 当结果为 0 时表示配平，否则保存时应给出警告
+ *
+ * @param ratios 档位的 ratios 数组
+ * @returns 偏离值总和（正数=总占比>100%，负数=总占比<100%）
+ */
 const calcLevelOffsetSum = (ratios: any[]) => {
 	return ratios.reduce((sum, r) => {
 		const step = stepRatiosMap.value[r.etfCode] || 5.0
@@ -226,6 +316,12 @@ const calcLevelOffsetSum = (ratios: any[]) => {
 	}, 0)
 }
 
+// ===================== 档位增删操作 =====================
+
+/**
+ * 为策略A添加一个回撤档位
+ * 默认阈值为 5%，所有 ETF 的偏离倍数初始为 0（即保持原始配比不变）
+ */
 const addLevel = (type: 'drawdown') => {
 	const newLevel = {
 		levelOrder: strategyA.drawdownLevels.length + 1,
@@ -235,10 +331,15 @@ const addLevel = (type: 'drawdown') => {
 	strategyA.drawdownLevels.push(newLevel as any)
 }
 
+/** 删除策略A的指定回撤档位 */
 const removeLevel = (type: 'drawdown', idx: number) => {
 	strategyA.drawdownLevels.splice(idx, 1)
 }
 
+/**
+ * 为策略B添加一个高估或低估档位
+ * 默认阈值为 1%，所有 ETF 的偏离倍数初始为 0
+ */
 const addBLevel = (type: 'overvalued' | 'undervalued') => {
 	const newLevel = {
 		levelOrder: type === 'overvalued' ? strategyB.overvaluedLevels.length + 1 : strategyB.undervaluedLevels.length + 1,
@@ -252,6 +353,7 @@ const addBLevel = (type: 'overvalued' | 'undervalued') => {
 	}
 }
 
+/** 删除策略B的指定高估或低估档位 */
 const removeBLevel = (type: 'overvalued' | 'undervalued', idx: number) => {
 	if (type === 'overvalued') {
 		strategyB.overvaluedLevels.splice(idx, 1)
@@ -260,6 +362,15 @@ const removeBLevel = (type: 'overvalued' | 'undervalued', idx: number) => {
 	}
 }
 
+// ===================== 数据加载 =====================
+
+/**
+ * 页面初始化时并行加载所有配置数据
+ * 包括：ETF 列表、策略A 配置、策略B 配置、初始配比及步长
+ *
+ * 注意：ETF 列表会过滤掉 is_enabled=false 的标的（物理隐藏），
+ * 这意味着被禁用的 ETF 不会出现在策略配置界面的列中。
+ */
 const loadAllConfig = async () => {
 	try {
 		const [etfRes, aRes, bRes, ratioRes] = await Promise.all([
@@ -269,6 +380,7 @@ const loadAllConfig = async () => {
 			configApi.getInitialRatios()
 		])
 
+		// 构建 initialRatiosMap 和 stepRatiosMap
 		const savedRatios = (ratioRes as any).data || []
 		initialRatiosMap.value = {}
 		stepRatiosMap.value = {}
@@ -277,13 +389,14 @@ const loadAllConfig = async () => {
 			stepRatiosMap.value[r.etfCode] = parseFloat(r.stepRatio || 5.0)
 		})
 
-		// 极其关键的物理隐藏：仅仅保留状态为启用的 ETF 标的列！
+		// 过滤：仅保留 is_enabled !== false 的 ETF（被禁用的标的不显示在配置界面）
 		const rawEtfs = (etfRes as any).data || []
 		etfList.value = rawEtfs.filter((item: any) => {
 			const ratioItem = savedRatios.find((r: any) => r.etfCode === item.code)
 			return ratioItem ? ratioItem.isEnabled !== false : true
 		})
 
+		// 填充策略A配置
 		const aData = (aRes as any).data
 		if (aData) {
 			strategyA.enabled = aData.enabled
@@ -294,9 +407,10 @@ const loadAllConfig = async () => {
 				threshold: l.threshold,
 				ratios: l.ratios || [],
 			}))
-			strategyA.rallyLevels = []
+			strategyA.rallyLevels = [] // 前端暂不使用反弹档位
 		}
 
+		// 填充策略B配置
 		const bData = (bRes as any).data
 		if (bData) {
 			strategyB.enabled = bData.enabled
@@ -319,6 +433,14 @@ const loadAllConfig = async () => {
 	}
 }
 
+// ===================== 保存操作（含配平校验） =====================
+
+/**
+ * 保存策略A配置
+ * 校验逻辑：遍历所有回撤档位，检查每档的偏离值总和是否为 0（即实际总占比 = 100%）。
+ * 如果任一档位未配平，弹出警告并阻止保存。
+ * 校验通过后调用 configApi.updateStrategyA() 提交到后端。
+ */
 const saveStrategyA = async () => {
 	// 验证每一档偏离值总和是否都等于 0% (即实际总占比 100%)
 	for (let i = 0; i < strategyA.drawdownLevels.length; i++) {
@@ -346,6 +468,10 @@ const saveStrategyA = async () => {
 	}
 }
 
+/**
+ * 保存策略B配置
+ * 校验逻辑：与策略A相同，需分别校验高估档位和低估档位的配平约束。
+ */
 const saveStrategyB = async () => {
 	// 验证高估每一档偏离值总和是否都等于 0%
 	for (let i = 0; i < strategyB.overvaluedLevels.length; i++) {
@@ -382,6 +508,7 @@ const saveStrategyB = async () => {
 	}
 }
 
+/** 页面挂载时加载所有配置 */
 onMounted(() => {
 	loadAllConfig()
 })

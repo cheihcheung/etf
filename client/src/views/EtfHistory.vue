@@ -74,6 +74,36 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * ============================================================================
+ * 文件：EtfHistory.vue — ETF 历史 K 线行情查看页面
+ * ============================================================================
+ *
+ * 【页面功能】
+ *   1. 选择 ETF 代码 + 日期区间，加载该 ETF 的历史日线 OHLCV 数据
+ *   2. 以 K 线图（蜡烛图）+ 成交量柱状图 + 年化基准线的形式展示
+ *   3. 下方表格展示详细数据（日期、开/收/高/低、涨跌幅、成交量），支持分页和排序
+ *
+ * 【图表结构 — 双 Y 轴联动布局】
+ *   上方网格（grid[0]）：K 线蜡烛图 + 年化基准虚线
+ *   下方网格（grid[1]）：成交量柱状图（与上方共享 X 轴）
+ *   两个网格通过 axisPointer.link 实现鼠标联动
+ *   dataZoom 支持鼠标滚轮缩放 + 底部滑块拖拽，默认显示最后 10% 数据
+ *
+ * 【年化基准线计算】
+ *   从后端 stock 表获取该 ETF 的 annual_return 字段（历史年化收益率），
+ *   以首日收盘价为基准，按复利公式 P = P0 × (1 + r)^(years) 计算每日的"理论价格"。
+ *   以虚线形式叠加在 K 线图上，便于直观对比实际走势与年化基准的偏离程度。
+ *
+ * 【⚠️ K 线数据字段兼容性】
+ *   oclh 数组构建时使用了多层 ?? 回退（open_price → openPrice → closePrice → close_price），
+ *   这是为了兼容后端 snake_case 和前端 camelCase 两种命名格式。
+ *   但如果 openPrice 缺失而回退到 closePrice，则 K 线实体为 0（十字星），可能造成视觉误导。
+ *
+ * 【数据来源】
+ *   GET /api/etf/history/:code?startDate=...&endDate=...
+ *   后端从 history_data 表查询，数据由 spider.js 从腾讯行情接口抓取（前复权 qfq）
+ */
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { etfApi } from '../api'
@@ -85,33 +115,59 @@ import { CandlestickChart, BarChart, LineChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, MarkLineComponent, MarkPointComponent, DataZoomComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 
+// ECharts 按需注册：K 线图 + 柱状图 + 折线图，以及 tooltip/legend/grid/zoom 等组件
 use([CandlestickChart, BarChart, LineChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, MarkLineComponent, MarkPointComponent, DataZoomComponent, CanvasRenderer])
 
 const route = useRoute()
 const router = useRouter()
 
+// ===================== 页面状态 =====================
+
+/** ETF 列表（从后端加载） */
 const etfList = ref<any[]>([])
+/** 当前选中的 ETF 代码 */
 const selectedCode = ref('')
+/** 当前选中的 ETF 名称 */
 const selectedName = ref('')
+/** 查询起始日期，默认从 2010-01-01 */
 const startDate = ref('2010-01-01')
+/** 查询结束日期，默认到今天 */
 const endDate = ref(getTodayString())
+/** 历史行情数据（按日期升序排列） */
 const historyData = ref<any[]>([])
+/** 数据加载中状态 */
 const loading = ref(false)
+/** 是否显示 K 线图表（默认隐藏，点击按钮切换） */
 const showChart = ref(false)
+/** 分页：当前页码 */
 const currentPage = ref(1)
+/** 分页：每页条数 */
 const pageSize = ref(20)
 
+// ===================== 分页计算 =====================
+
+/**
+ * 前端分页数据（按日期降序排列，最新的在前）
+ * 表格默认按 tradeDate 降序排列，所以需要 reverse 原始升序数据
+ */
 const pagedData = computed(() => {
 	const desc = [...historyData.value].reverse()
 	const start = (currentPage.value - 1) * pageSize.value
 	return desc.slice(start, start + pageSize.value)
 })
 
+// ===================== 数据加载函数 =====================
+
+/**
+ * 加载 ETF 列表，并自动选中第一个 ETF 加载其历史数据
+ * 如果 URL query 中已有 code 参数，则优先使用该参数
+ */
 const loadEtfs = async () => {
 	try {
 		const res: any = await etfApi.list()
 		etfList.value = res.data || []
 		if (etfList.value.length > 0) {
+			// 如果尚未选中任何 ETF，默认选中第一个
 			if (!selectedCode.value) {
 				selectedCode.value = etfList.value[0].code
 				selectedName.value = etfList.value[0].name
@@ -123,6 +179,10 @@ const loadEtfs = async () => {
 	}
 }
 
+/**
+ * ETF 选择器变化时的回调
+ * 更新路由 query 参数（支持浏览器刷新后保持选中状态）并重新加载数据
+ */
 const onEtfChange = (code: string) => {
 	const etf = etfList.value.find((e) => e.code === code)
 	selectedName.value = etf?.name || ''
@@ -130,6 +190,10 @@ const onEtfChange = (code: string) => {
 	loadData()
 }
 
+/**
+ * 根据选中的 ETF 代码和日期区间加载历史行情数据
+ * 加载成功后自动将分页复位到第 1 页
+ */
 const loadData = async () => {
 	if (!selectedCode.value) {
 		ElMessage.warning('请选择ETF')
@@ -151,18 +215,43 @@ const loadData = async () => {
 	}
 }
 
+// ===================== 年化基准计算 =====================
+
+/** 当前选中 ETF 的年化收益率（从 stock 表的 annual_return 字段获取，百分比） */
 const annualReturn = computed(() => {
 	const etf = etfList.value.find((e) => e.code === selectedCode.value)
 	return etf ? parseFloat(etf.annual_return) || 0 : 0
 })
 
+// ===================== K 线图表配置 =====================
+
+/**
+ * 【K 线 + 成交量 + 年化基准线 ECharts 配置】
+ *
+ * 布局采用双网格（grid[0] 上方 K 线，grid[1] 下方成交量），
+ * 通过共享 X 轴和 axisPointer.link 实现联动。
+ *
+ * 系列构成：
+ *   1. 日K 蜡烛图（candlestick）— 红(涨)/绿(跌) 配色
+ *   2. 成交量柱状图（bar）— 置于下方网格，颜色跟随 K 线涨跌
+ *   3. 年化基准线（line，可选）— 当 annualReturn > 0 时显示，
+ *      以首日收盘价按复利公式计算的理论价格曲线（橙色虚线）
+ *
+ * K 线数据格式（ECharts candlestick 要求）：
+ *   [开盘价, 收盘价, 最低价, 最高价]
+ *   注意顺序是 open, close, low, high（与直觉不同，high 在最后）
+ */
 const chartOption = computed(() => {
 	const data = historyData.value
 	if (!data || data.length === 0) return {}
 
 	const dates = data.map((d: any) => d.tradeDate)
-	// K线数据格式: [open, close, lowest, highest]
-	// 增加兼容性判断，防止后端字段名变化导致数值一致
+
+	/**
+	 * 构建 K 线数据数组（每项为 [open, close, low, high]）
+	 * ⚠️ 字段兼容性：同时尝试 snake_case (open_price) 和 camelCase (openPrice)
+	 * 如果 openPrice 缺失，回退到 closePrice（此时 K 线实体为 0，显示为十字星）
+	 */
 	const oclh = data.map((d: any) => {
 		const open = d.open_price ?? d.openPrice ?? d.closePrice ?? d.close_price
 		const close = d.closePrice ?? d.close_price
@@ -170,8 +259,13 @@ const chartOption = computed(() => {
 		const high = d.high_price ?? d.highPrice ?? d.closePrice ?? d.close_price
 		return [parseFloat(open), parseFloat(close), parseFloat(low), parseFloat(high)]
 	})
+	/** 成交量数据（单位：手/股，具体取决于后端 spider 抓取时的单位） */
 	const volumes = data.map((d: any) => d.volume || 0)
 
+	// ---- 年化基准线计算 ----
+	// 以首日收盘价为基准，按复利公式计算每日"理论价格"
+	// P(t) = P0 × (1 + annualPct/100) ^ years
+	// 其中 years = (当日 - 首日) / 365.25
 	const firstDate = new Date(dates[0])
 	const firstPrice = parseFloat(data[0].closePrice || data[0].close_price)
 	const annualPct = annualReturn.value
@@ -326,6 +420,7 @@ const chartOption = computed(() => {
 	}
 })
 
+/** 页面挂载：从 URL query 恢复选中状态（code/startDate/endDate），然后加载 ETF 列表 */
 onMounted(() => {
 	if (route.query.code) {
 		selectedCode.value = route.query.code as string

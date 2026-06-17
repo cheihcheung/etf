@@ -4,6 +4,24 @@
  * ==========================================================
  * 映射物理表：backtest_results
  * 持久化保存单次历史回测指标、参数寻优遍历结果，并提供精简排行榜加载。
+ *
+ * 【表结构关键字段】
+ *   - id                 : 自增主键
+ *   - name               : 记录名称(如 "回测_2020-01-01_2023-12-31")
+ *   - params             : 回测参数 JSON(完整快照，用于复现)
+ *   - total_return       : 累计总收益率(%)
+ *   - annual_return      : 年化收益率(%)
+ *   - max_drawdown       : 最大回撤(%)
+ *   - annual_volatility  : 年化波动率(%)
+ *   - sharpe_ratio       : 夏普比率
+ *   - daily_detail       : ⚠️ 每日详情大 JSON(longtext)，包含每日净值/现金流/持仓等完整序列
+ *   - create_time        : 创建时间
+ *
+ * ⚠️ 【daily_detail 大字段注意事项】
+ *   该字段是 longtext 类型，单条记录可能高达数 MB(几十年的每日数据)。
+ *   getRankings() 排行榜查询会主动剔除该字段，避免列表加载时传输海量数据。
+ *   仅在 getBacktestDetail(id) 查询单条详情时才返回完整 daily_detail。
+ *   寻优模式(isOptimization)下写入 null，避免几百次回测撑爆数据库。
  */
 const BaseModel = require('./BaseModel');
 

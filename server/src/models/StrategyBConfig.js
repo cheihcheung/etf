@@ -4,6 +4,16 @@
  * ==========================================================
  * 映射物理表：strategy_b_config
  * 承载策略 B 的判定档位、估值偏离中枢阈值及配比 JSON，提供扁平化读取与一键保存。
+ *
+ * 【表结构关键字段】
+ *   - deviation_type : 偏离类型 enum('overvalued','undervalued') —— overvalued=高估(减仓)，undervalued=低估(加仓)
+ *   - level_order    : 档位序号(1,2,3...)
+ *   - threshold      : 触发阈值(年化偏离度百分比，如 5 表示偏离中枢5%触发)
+ *   - ratios         : 该档的目标配比 JSON，格式 {etfCode: 倍数}
+ *
+ * ⚠️ 【ratios 倍数语义(与策略A相同)】
+ *   ratios 中存的是「倍数」：实际占比 = initialRatio + ratios[etfCode] × step_ratio
+ *   高估档通常倍数为负(减仓)，低估档倍数为正(加仓)。
  */
 const BaseModel = require('./BaseModel');
 

@@ -1,4 +1,23 @@
-﻿const express = require('express');
+/**
+ * ==========================================================================================
+ * ETF 标的与历史行情接口路由 (/api/etf)
+ * ==========================================================================================
+ * 提供 ETF 的增删改查、实时行情同步、历史K线查询与批量同步等接口。
+ *
+ * 【接口清单】
+ *   GET    /list              : 所有ETF列表(含历史起止)
+ *   POST   /add               : 添加ETF(查重+建仓+抓实时价)
+ *   PUT    /update            : 更新ETF元数据
+ *   DELETE /delete/:code      : 删除ETF(校验占比守恒)
+ *   GET    /quote/:code       : 同步单只ETF实时报价
+ *   GET    /search?keyword=   : 联网搜索ETF代码(东财)
+ *   POST   /sync-all          : 同步全量实时价+自动补全近期历史
+ *   GET    /history/:code     : 查历史K线(本地优先，回退爬虫)
+ *   POST   /sync-history      : 批量强制同步历史(年份切片防超时)
+ *   GET    /market-list       : 抓取市场ETF名录
+ * ==========================================================================================
+ */
+const express = require('express');
 const router = express.Router();
 const spider = require('../services/spider');
 const logger = require('../utils/logger');
@@ -8,7 +27,15 @@ const Stock = require('../models/Stock');
 const HistoryData = require('../models/HistoryData');
 
 /**
- * 辅助函数：根据起止日期以年份进行切片（用于历史行情抓取补全防超时）
+ * 辅助函数：将起止日期按自然年切片
+ *
+ * 用于历史行情批量抓取时避免单次请求时间跨度太大导致超时。
+ * 例如 2020-01-01 ~ 2023-12-31 会被切成 4 段(每年一段)，
+ * 然后逐段请求爬虫接口。
+ *
+ * @param {string} startDate - 起始日期 'YYYY-MM-DD'
+ * @param {string} endDate - 结束日期 'YYYY-MM-DD'
+ * @returns {Array<{start,end}>} 年份切片数组
  */
 function splitYears(startDate, endDate) {
     const years = [];
@@ -18,6 +45,7 @@ function splitYears(startDate, endDate) {
     while (true) {
         const yearStart = new Date(year, 0, 1);
         const yearEnd = new Date(year + 1, 0, 1);
+        // 切片起点不早于用户指定的起始日，终点不晚于结束日
         const segStart = yearStart < start ? start : yearStart;
         const segEnd = yearEnd > end ? end : yearEnd;
         years.push({

@@ -5,6 +5,28 @@
  * 本类旨在为量化平台提供极易上手、类似于 ThinkPHP 特色的优雅 Model 封装。
  * 在不引入外部臃肿 ORM 的前提下，通过纯 JS 对象解析自动生成防 SQL 注入的 SQL 语句。
  * 全面支持一键 CRUD、条件查询与底层穿透，实现开发高内聚和 MVC 完美解耦。
+ *
+ * 【SQL 注入防护机制】
+ *   所有查询均使用 mysql2 的参数化绑定(占位符 ?)，值通过 params 数组传入，
+ *   mysql2 驱动会自动转义，从根本上杜绝 SQL 注入。
+ *   注意：tableName 和字段名是直接拼接的(非参数化)，因此子类覆盖 tableName 时
+ *   必须使用硬编码常量(如 'stock')，绝不能来自用户输入。
+ *
+ * 【使用方式】
+ *   子类只需覆盖 static tableName 和 static pk，即可继承全部 CRUD 方法：
+ *     class Stock extends BaseModel { static tableName = 'stock'; }
+ *     await Stock.findAll({ asset_type: '股票类' });
+ *
+ * 【方法清单】
+ *   - query/execute : 底层 SQL 穿透(手写 SQL 时使用)
+ *   - find          : 按主键查单条
+ *   - findOne       : 按条件查单条(对象或 SQL 片段)
+ *   - findAll       : 按条件查列表(支持排序、限制条数)
+ *   - create        : 插入单条记录
+ *   - update        : 按主键更新
+ *   - updateWhere   : 按条件更新
+ *   - delete        : 按主键删除
+ *   - deleteWhere   : 按条件删除
  */
 const db = require('../config/db');
 

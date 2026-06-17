@@ -320,6 +320,49 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * ============================================================================
+ * 文件：Backtest.vue — 回测主页面（核心视图）
+ * ============================================================================
+ *
+ * 【页面功能概览】
+ * 本页面是整个 ETF 组合回测系统的核心交互入口，包含以下功能区域：
+ *
+ *   1. 回测参数配置区（日期、资金、费率、频率、策略开关、策略优先级等）
+ *   2. 回测结果展示区（核心指标对比表格 + 3 个 ECharts 图表 + 调仓明细表）
+ *   3. 参数寻优弹窗与结果展示（网格遍历多个阈值组合，按夏普排序）
+ *   4. 历史回测记录列表（分页，支持点击查看某次历史回测的详情）
+ *
+ * 【数据流向】
+ *   前端 params → POST /api/backtest/run → 后端 backtest.js 引擎计算
+ *   → 返回 BacktestResult（含 dailyValues / tradeRecords / 指标 / 基准对比）
+ *   → 前端 computed 属性自动派生图表配置 → ECharts 渲染
+ *
+ * 【核心 computed 派生链】
+ *   result.dailyValues → chartOption（收益曲线）       ── 组合净值 + 沪深300 + 各ETF独立净值
+ *                       → allocationChartOption（配置变动）── 堆叠面积图，显示现金+各ETF占比
+ *                       → drawdownChartOption（回撤走势）    ── 负值面积图
+ *   result + benchmarkMetrics + etfMetrics → comparisonData（指标对比表格）
+ *
+ * 【策略开关机制】
+ *   strategyToggles 是一个 ref<string[]>，值为 checkbox-group 的选中 label 集合。
+ *   三个可用 label：'rebalance' / 'strategyA' / 'strategyB'
+ *   初始值 ['rebalance', '', ''] 默认仅启用再平衡。
+ *   当启用 ≥2 个策略时，策略优先级下拉框才会解锁。
+ *   调仓频率 tradeFrequency 控制引擎的交易日采样粒度（daily/weekly/monthly）。
+ *
+ * 【费率说明】
+ *   params.feeRate 的值含义：0.012 表示 0.012%（即万 1.2）。
+ *   后端 calcFee() 内部会执行 amount * feeRate / 100，因此前端传入的是"百分比数字"。
+ *   feeExemptFive=true 时，单笔佣金不足 5 元免收（A股惯例）。
+ *
+ * 【⚠️ 已知注意事项】
+ *   1. 图表 X 轴标签间隔通过 Math.ceil(values.length / 8) 动态计算，
+ *      当数据点很少（<8）时可能所有日期都显示，造成拥挤。
+ *   2. 调仓明细表中的 totalValue 字段来源是 row.totalValue || row.total_value，
+ *      兼容了后端 camelCase 和 snake_case 两种命名格式（历史遗留）。
+ *   3. 历史记录列表仅展示最新 500 条精简记录（后端路由限制）。
+ */
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -332,26 +375,65 @@ import { ElMessage } from 'element-plus'
 import type { BacktestParams, BacktestResult } from '../types'
 import { getTodayString } from '@/utils'
 
+// ECharts 按需注册：折线图、柱状图，以及 tooltip/legend/grid/markLine 等组件
 use([LineChart, BarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, MarkLineComponent, CanvasRenderer])
 
+// ===================== 页面状态变量 =====================
+
+/** 是否正在执行单次回测（控制按钮 loading 状态） */
 const running = ref(false)
+/** 是否正在执行参数寻优（控制寻优按钮 loading 状态） */
 const optimizing = ref(false)
+/** 是否正在加载历史记录列表（控制表格 v-loading） */
 const loadingHistory = ref(false)
+/** 参数寻优弹窗是否可见 */
 const optimizeDialogVisible = ref(false)
 
+// ===================== 数据存储 =====================
+
+/** 单次回测的结果对象（后端 BacktestResult 结构，包含 dailyValues / tradeRecords / 指标等） */
 const result = ref<BacktestResult | null>(null)
+/** 参数寻优的结果对象（含 bestParams + sortedResults 排序数组） */
 const optimizationResult = ref<any>(null)
+/** 历史回测记录列表（精简格式，不含 daily_detail） */
 const historyResults = ref<any[]>([])
 
+// ===================== 分页状态 =====================
+
+/** 当前页码 */
 const currentPage = ref(1)
+/** 每页条数 */
 const pageSize = ref(10)
 
+/**
+ * 前端分页：根据 currentPage 和 pageSize 从 historyResults 中切片
+ * 注：这是纯前端分页，后端一次性返回最多 500 条记录
+ */
 const pagedHistoryResults = computed(() => {
 	const start = (currentPage.value - 1) * pageSize.value
 	const end = start + pageSize.value
 	return historyResults.value.slice(start, end)
 })
 
+// ===================== 回测参数（响应式对象） =====================
+
+/**
+ * 回测请求参数对象
+ * 各字段含义：
+ *   startDate / endDate     — 回测区间
+ *   initialCapital          — 初始总资金（元）
+ *   feeRate                  — 交易费率，单位为"%"（0.012 = 万1.2），后端 calcFee 内部会 /100
+ *   feeExemptFive            — 是否启用"免五"（单笔佣金 < 5 元时免收）
+ *   etfs                     — ETF 列表 [{code, name}]，由 loadEtfList 从后端拉取
+ *   initialRatios            — 各 ETF 初始配比 {code: ratio}，例如 {'510300': 25}
+ *   strategyAConfig          — 策略A 配置对象（从后端 configApi 动态获取，可为 null）
+ *   strategyBConfig          — 策略B 配置对象（同上）
+ *   rebalanceThreshold       — 再平衡偏离阈值（百分比），例如 2 表示偏离超过 ±2% 时触发
+ *   tradeFrequency           — 调仓频率：daily(每日) / weekly(每周) / monthly(每月)
+ *   strategyPriority         — 策略冲突优先级：rebalance / strategy_a / strategy_b
+ *   centralAnnual            — 策略B 的"年化收益中枢"参考值（百分比）
+ *   resetOnHigh              — 策略A 是否在创新高时自动复位 drawdownHighWaterMark
+ */
 const params = reactive<BacktestParams>({
 	startDate: '2013-02-01',
 	endDate: getTodayString(),
@@ -369,11 +451,23 @@ const params = reactive<BacktestParams>({
 	resetOnHigh: true,
 })
 
+// ===================== 策略开关 & 派生状态 =====================
+
+/**
+ * 策略组合开关组（el-checkbox-group 的 v-model）
+ * 数组中存储被选中的 label 字符串：'rebalance' | 'strategyA' | 'strategyB'
+ * 初始值 ['rebalance', '', ''] 表示默认仅启用再平衡
+ */
 const strategyToggles = ref(['rebalance', '', ''])
+
+/** 策略A 是否启用（从 strategyToggles 派生） */
 const enableStrategyA = computed(() => strategyToggles.value.includes('strategyA'))
+/** 策略B 是否启用（从 strategyToggles 派生） */
 const enableStrategyB = computed(() => strategyToggles.value.includes('strategyB'))
+/** 再平衡是否启用（从 strategyToggles 派生） */
 const enableRebalance = computed(() => strategyToggles.value.includes('rebalance'))
 
+/** 当前启用的策略数量（用于判断是否需要显示策略优先级选择器） */
 const activeStrategiesCount = computed(() => {
 	let count = 0
 	if (enableRebalance.value) count++
@@ -381,24 +475,52 @@ const activeStrategiesCount = computed(() => {
 	if (enableStrategyB.value) count++
 	return count
 })
+/** 仅当启用 ≥2 个策略时，才允许选择策略优先级（避免单一策略时优先级无意义） */
 const enablePrioritySelect = computed(() => activeStrategiesCount.value >= 2)
 
+// ===================== 参数寻优相关 =====================
+
+/**
+ * 寻优范围配置（目前仅支持再平衡阈值的网格遍历）
+ * rebalanceThreshold 数组中的每个值代表一个待测试的阈值参数
+ */
 const optimizeRanges = reactive({ rebalanceThreshold: [1.0, 1.5, 2.0] })
+/**
+ * 策略A回撤阈值的寻优选项（当前仅支持 'default' 占位，暂未实现自动遍历）
+ */
 const optimizeRates = ref(['default'])
 
+/**
+ * 寻优结果中最优参数的描述文本（用于 el-alert 展示）
+ * 格式示例："年化: 12.34%, 最大回撤: -15.67%, 夏普: 1.2345"
+ */
 const bestParamsDesc = computed(() => {
 	if (!optimizationResult.value?.bestParams) return ''
 	const bp = optimizationResult.value.bestParams
 	return `年化: ${bp.annualReturn?.toFixed(2)}%, 最大回撤: ${bp.maxDrawdown?.toFixed(2)}%, 夏普: ${bp.sharpeRatio?.toFixed(4)}`
 })
 
+/** 当前回测结果中涉及的 ETF 代码列表（用于动态生成对比表格列） */
 const etfMetricCodes = computed(() => {
 	return Object.keys(result.value?.etfMetrics || {})
 })
 
+/**
+ * 【核心指标对比表格数据】
+ * 将回测结果的核心指标整理为表格行数据，每行包含：
+ *   - 组合值（我的策略组合）
+ *   - 基准值（沪深300）
+ *   - 各 ETF 单独持有的指标值（动态列）
+ *   - 差异值（组合 vs 基准），用于展示超额收益
+ *
+ * "越低越好"的指标（最大回撤、年化波动率）：isBetter 判断为 组合 < 基准
+ * "越高越好"的指标（总收益、年化、夏普）：isBetter 判断为 组合 > 基准
+ * diff 始终计算为 "正值表示优于基准" 的方向
+ */
 const comparisonData = computed(() => {
 	if (!result.value) return []
 	const r = result.value
+	// 基准指标（沪深300），如果没有则全部填充 0
 	const b = r.benchmarkMetrics || {
 		totalReturn: 0,
 		annualReturn: 0,
@@ -406,6 +528,7 @@ const comparisonData = computed(() => {
 		annualVolatility: 0,
 		sharpeRatio: 0,
 	}
+	// 各 ETF 单独持有的指标集合 {code: {totalReturn, annualReturn, ...}}
 	const m = r.etfMetrics || {}
 
 	return [
@@ -457,9 +580,26 @@ const comparisonData = computed(() => {
 	]
 })
 
+/**
+ * 【收益对比曲线图 ECharts 配置】
+ *
+ * 图表系列构成：
+ *   1. 组合净值（红色粗线）— 所有 ETF 按策略调仓后的组合总资产
+ *   2. 沪深300（灰色线）   — 同期沪深300指数作为基准
+ *   3. 各 ETF 独立净值线    — 如果把全部资金单独持有某个 ETF 的净值走势（默认不选中/半透明）
+ *
+ * 性能优化：
+ *   所有折线启用 LTTB 降采样（Largest Triangle Three Buckets），
+ *   当数据点数 > 图表像素宽度时自动降采样，大幅提升渲染性能。
+ *
+ * 图例策略：
+ *   ETF 独立线在 legend.selected 中默认设为 false（不选中），
+ *   用户可手动点击图例切换显示/隐藏，避免初始界面过于拥挤。
+ */
 const chartOption = computed(() => {
 	if (!result.value?.dailyValues) return {}
 	const values = result.value.dailyValues
+	// 从第一条 dailyValues 中提取所有 ETF 代码
 	const etfCodes = Object.keys(values[0]?.etfPerformances || {})
 
 	const series = [
@@ -472,7 +612,7 @@ const chartOption = computed(() => {
 			sampling: 'lttb',
 			itemStyle: { color: '#f56c6c' },
 			lineStyle: { width: 2 },
-			z: 10,
+			z: 10, // 置于最顶层，确保组合线不被 ETF 线遮挡
 		},
 		{
 			name: '沪深300',
@@ -481,11 +621,12 @@ const chartOption = computed(() => {
 			smooth: true,
 			showSymbol: false,
 			sampling: 'lttb',
-			lineStyle: { width: 2 }, // 调大线宽，保持一致
+			lineStyle: { width: 2 },
 			itemStyle: { color: '#909399' },
 		},
 	]
 
+	// 动态为每个 ETF 生成独立净值线
 	etfCodes.forEach((code) => {
 		const etfLabel = result.value?.etfMetrics?.[code]?.name || code
 		series.push({
@@ -496,8 +637,8 @@ const chartOption = computed(() => {
 			showSymbol: false,
 			sampling: 'lttb',
 			lineStyle: { width: 2 },
-			itemStyle: { opacity: 0.5 } as any,
-			selected: false,
+			itemStyle: { opacity: 0.5 } as any, // 半透明，与组合线做视觉区分
+			selected: false, // 默认不选中，用户可在图例中手动开启
 		} as any)
 	})
 
@@ -511,9 +652,10 @@ const chartOption = computed(() => {
 		},
 		legend: {
 			data: ['组合净值', '沪深300', ...etfCodes.map((c) => result.value?.etfMetrics?.[c]?.name || c)],
+			// ETF 线默认不选中（selected: false），减少初始视觉干扰
 			selected: etfCodes.reduce((acc, c) => ({ ...acc, [result.value?.etfMetrics?.[c]?.name || c]: false }), {}),
 			bottom: 10,
-			type: 'scroll',
+			type: 'scroll', // ETF 数量多时可滚动
 		},
 		grid: { left: '3%', right: '4%', top: '5%', bottom: '15%', containLabel: true },
 		xAxis: {
@@ -521,13 +663,14 @@ const chartOption = computed(() => {
 			data: values.map((v) => v.date),
 			axisLabel: {
 				fontSize: 10,
+				// 动态计算 X 轴标签间隔，目标约显示 8 个日期刻度
 				interval: Math.ceil(values.length / 8),
 			},
 			boundaryGap: false,
 		},
 		yAxis: {
 			type: 'value',
-			scale: true,
+			scale: true, // 不强制从 0 开始，充分利用图表高度展示差异
 			axisLabel: {
 				formatter: (val: number) => (val / 10000).toFixed(1) + '万',
 			},
@@ -536,9 +679,20 @@ const chartOption = computed(() => {
 	}
 })
 
+/**
+ * 【资产配置变动堆叠面积图 ECharts 配置】
+ *
+ * 展示每个交易日的资产占比分布：
+ *   - 现金占比（最底层）
+ *   - 各 ETF 占比（累加堆叠，总和 = 100%）
+ *
+ * 通过 ECharts 的 stack:'Total' 实现堆叠面积图，
+ * 可以直观看出：某 ETF 何时被加仓/减仓、现金比例的变化趋势。
+ */
 const allocationChartOption = computed(() => {
 	if (!result.value?.dailyValues || result.value.dailyValues.length === 0) return {}
 	const values = result.value.dailyValues
+	// 从 assetRatios 中提取 ETF 代码，排除 'cash'
 	const etfCodes = Object.keys(values[0].assetRatios || {}).filter((k) => k !== 'cash')
 
 	const series = [
@@ -581,6 +735,13 @@ const allocationChartOption = computed(() => {
 	}
 })
 
+/**
+ * 【回撤走势面积图 ECharts 配置】
+ *
+ * 展示组合净值的每日回撤幅度（百分比），Y 轴 max: 0 确保只显示负值区域。
+ * 面积填充为红色半透明，直观展示亏损区间和回撤恢复过程。
+ * 回撤值 = (当前净值 - 历史最高净值) / 历史最高净值 × 100
+ */
 const drawdownChartOption = computed(() => {
 	if (!result.value?.dailyValues) return {}
 	const values = result.value.dailyValues
@@ -608,11 +769,18 @@ const drawdownChartOption = computed(() => {
 	}
 })
 
+/** 金额格式化：将数字转为人民币格式（带 ¥ 前缀和千分位） */
 const formatMoney = (val: number) => {
 	if (!val && val !== 0) return '¥0.00'
 	return `¥${val.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+/**
+ * 加载 ETF 列表及初始配比
+ * 1. 调用 etfApi.list() 获取所有已配置的 ETF（code + name）
+ * 2. 调用 configApi.getInitialRatios() 获取各 ETF 的初始配比
+ * 3. 将配比数据填充到 params.etfs 和 params.initialRatios 中
+ */
 const loadEtfList = async () => {
 	try {
 		const etfRes = await etfApi.list()
@@ -632,6 +800,16 @@ const loadEtfList = async () => {
 	}
 }
 
+/**
+ * 执行单次回测
+ * 流程：
+ *   1. 根据策略开关状态，动态从后端拉取策略A/策略B的最新配置
+ *      （如果策略未启用则传入 null，后端引擎会跳过该策略）
+ *   2. 根据再平衡开关生成 rebalanceConfig 标识
+ *   3. 将完整 params 发送到 POST /api/backtest/run
+ *   4. 成功后将结果存入 result（触发所有 computed 图表重新渲染）
+ *   5. 同时刷新历史记录列表（新回测结果会出现在历史中）
+ */
 const runBacktest = async () => {
 	running.value = true
 	result.value = null
@@ -658,6 +836,14 @@ const showOptimization = () => {
 	optimizeDialogVisible.value = true
 }
 
+/**
+ * 执行参数寻优
+ * 与 runBacktest 类似，但会：
+ *   1. 将当前参数作为 baseParams，加上 optimizationRanges（待遍历的参数范围）
+ *   2. 发送到 POST /api/backtest/optimize
+ *   3. 后端对每个参数组合执行完整回测，返回按夏普比率排序的结果
+ *   4. 完成后关闭弹窗并展示寻优结果
+ */
 const runOptimization = async () => {
 	optimizing.value = true
 	optimizationResult.value = null
@@ -682,6 +868,10 @@ const runOptimization = async () => {
 	}
 }
 
+/**
+ * 加载历史回测记录（精简列表，不含 daily_detail）
+ * 加载成功后自动将 currentPage 复位到第 1 页
+ */
 const loadHistory = async () => {
 	loadingHistory.value = true
 	try {
@@ -694,6 +884,11 @@ const loadHistory = async () => {
 	}
 }
 
+/**
+ * 查看某条历史回测记录的详细数据
+ * 从后端获取 daily_detail（可能是 JSON 字符串或已解析的对象），
+ * 解析后赋值给 result，触发图表和指标表格重新渲染
+ */
 const viewHistoryDetail = async (row: any) => {
 	try {
 		const res: any = await backtestApi.detail(row.id)
@@ -706,12 +901,27 @@ const viewHistoryDetail = async (row: any) => {
 	}
 }
 
-// ==========================================
-// 调仓流水表格行合并算法实现 (相同时刻日期与账户总资产跨行合并展示)
-// ==========================================
+// ============================================================================
+// 调仓流水表格 — 行合并算法
+// ============================================================================
+// 背景：同一天可能发生多笔交易（买入/卖出不同的 ETF），在表格中需要将
+//       相同日期的行进行"日期"和"账户总额"两列的视觉合并。
+//
+// 算法：前向扫描，维护 spanArr 数组：
+//   - spanArr[i] = N 表示第 i 行需要向下合并 N 行（rowspan=N）
+//   - spanArr[i] = 0 表示该行被上一行合并，不渲染自己的单元格
+//
+// 配合 el-table 的 :span-method 属性实现 Element Plus 表格行合并。
+// ============================================================================
+
 const spanArr = ref<number[]>([])
+/** 当前合并段的起始行索引 */
 let position = 0
 
+/**
+ * 监听 tradeRecords 变化，重新计算行合并数组 spanArr
+ * 当回测结果更新（result.tradeRecords 改变）或首次加载时触发
+ */
 watch(() => result.value?.tradeRecords, (newRecords) => {
 	spanArr.value = []
 	position = 0
@@ -727,6 +937,7 @@ watch(() => result.value?.tradeRecords, (newRecords) => {
 				spanArr.value[position] += 1
 				spanArr.value.push(0)
 			} else {
+				// 日期不同，开始新的合并段
 				spanArr.value.push(1)
 				position = i
 			}
@@ -734,8 +945,13 @@ watch(() => result.value?.tradeRecords, (newRecords) => {
 	}
 }, { immediate: true })
 
+/**
+ * el-table 的 span-method 回调
+ * 对”日期”（第 0 列）和”账户总额”（第 1 列）执行行合并：
+ *   - 如果 spanArr[rowIndex] > 0：该行是合并的起始行，rowspan = spanArr[rowIndex]
+ *   - 如果 spanArr[rowIndex] === 0：该行被合并，rowspan = 0（不渲染单元格）
+ */
 const objectSpanMethod = ({ rowIndex, columnIndex }: any) => {
-	// 对“日期”(索引 0)和“账户总额”(索引 1)两列执行行合并
 	if (columnIndex === 0 || columnIndex === 1) {
 		const _row = spanArr.value[rowIndex]
 		const _col = _row > 0 ? 1 : 0
@@ -746,6 +962,7 @@ const objectSpanMethod = ({ rowIndex, columnIndex }: any) => {
 	}
 }
 
+/** 页面挂载时并行加载 ETF 列表和历史回测记录 */
 onMounted(async () => {
 	await Promise.all([loadEtfList(), loadHistory()])
 })

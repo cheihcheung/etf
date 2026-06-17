@@ -1,12 +1,29 @@
+/**
+ * ==========================================================================================
+ * 交易流水与市值查询接口路由 (/api/records)
+ * ==========================================================================================
+ * 提供交易流水的分页查询和实盘市值(占位)接口。
+ *
+ * 【接口清单】
+ *   GET /trades?type=&startDate=&endDate=&page=&pageSize= : 分页交易流水
+ *   GET /market : 实盘市值+沪深300基准(⚠️ 当前为占位实现，holdings 始终为空)
+ * ==========================================================================================
+ */
 const express = require('express');
 const router = express.Router();
 
-// 导入 MVC 实体模型层 (移除了无用的 GlobalConfig 模型)
+// 导入 MVC 实体模型层
 const TradeRecord = require('../models/TradeRecord');
 
 /**
- * GET /trades
- * 面向数据模型，拉取精细化过滤的分页交易流水记录
+ * GET /trades - 分页查询交易流水记录
+ *
+ * 支持按交易类型、起止日期过滤，返回分页结果(按交易时间倒序)。
+ * @query {string} [type] - 交易类型筛选：rebalance/strategy_a/strategy_b/manual
+ * @query {string} [startDate] - 起始日期 'YYYY-MM-DD'
+ * @query {string} [endDate] - 结束日期 'YYYY-MM-DD'
+ * @query {number} [page=1] - 页码
+ * @query {number} [pageSize=50] - 每页条数
  */
 router.get('/trades', async (req, res) => {
     try {
@@ -47,8 +64,10 @@ router.get('/trades', async (req, res) => {
 });
 
 /**
- * GET /market
- * 拉取实盘资产估值市值、成本偏离以及沪深300实时基准
+ * GET /market - 实盘资产市值与沪深300基准
+ *
+ * ⚠️ [占位接口] 当前实现只返回沪深300实时基准，holdings 和 totalValue 始终为空/0。
+ * 完整的实盘市值功能需要对接券商实盘持仓接口，属于待开发功能。
  */
 router.get('/market', async (req, res) => {
     try {
