@@ -51,6 +51,29 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * ============================================================================
+ * 文件：Layout.vue — 全局布局组件（侧边栏 + 顶部导航 + 主内容区）
+ * ============================================================================
+ *
+ * 【布局结构】
+ *   el-container（全屏高度）
+ *   ├── el-aside（侧边栏，可折叠：展开 180px / 折叠 64px）
+ *   │     ├── Logo / 标题区域
+ *   │     └── el-menu（导航菜单，深色主题 #1d1e1f）
+ *   │           ├── 回测寻优（/backtest）
+ *   │           ├── ETF管理（子菜单）
+ *   │           │     ├── ETF配置（/etf-config）
+ *   │           │     └── 历史走势（/etf-history）
+ *   │           └── 策略配置（/strategy-config）
+ *   └── el-container
+ *         ├── el-header（顶部栏：折叠按钮 + 页面标题 + 健康状态标签 + 刷新按钮）
+ *         └── el-main（主内容区，通过 <router-view /> 渲染当前路由对应的页面组件）
+ *
+ * 【健康检查】
+ *   页面挂载时调用 GET /api/health 检测后端连接状态，
+ *   在 header 右侧显示绿色"系统运行中"或红色"未连接"标签
+ */
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Monitor, Coin, Setting, DataAnalysis, Refresh } from '@element-plus/icons-vue'
@@ -58,17 +81,22 @@ import axios from 'axios'
 
 const route = useRoute()
 const router = useRouter()
+/** 侧边栏是否折叠 */
 const isCollapse = ref(false)
+/** 后端健康检查状态（true=连接正常） */
 const healthStatus = ref(false)
 
+/** 切换侧边栏折叠/展开状态 */
 const toggleCollapse = () => {
 	isCollapse.value = !isCollapse.value
 }
 
+/** 导航菜单点击事件：使用 router.push 进行页面跳转 */
 const handleMenuSelect = (index: string) => {
 	router.push(index)
 }
 
+/** 调用后端 /api/health 接口检测连接状态 */
 const checkHealth = async () => {
 	try {
 		const res = await axios.get('/api/health')

@@ -8,15 +8,27 @@
 
 import axios from 'axios'
 
+/** Axios 实例基础配置：所有请求默认前缀 /api，超时 60 秒，JSON 格式 */
 const request = axios.create({
     baseURL: '/api',
-    timeout: 60000,
+    timeout: 60000, // 60秒超时（回测计算可能耗时较长）
     headers: {
         'Content-Type': 'application/json',
     },
 })
 
-// 统一的响应拦截器
+// ============================================================================
+// 响应拦截器 — 统一错误处理
+// ============================================================================
+// 成功回调：
+//   1. 检查后端返回的 success 字段，如果为 false 则视为业务逻辑错误，抛出异常
+//   2. 正常情况下直接返回 response.data（剥离 axios 的外层包装）
+// 失败回调：
+//   1. 优先取后端返回的 error.message
+//   2. 其次取 axios 的 error.message
+//   3. 兜底返回 "请求失败"
+// ============================================================================
+
 request.interceptors.response.use(
     (response) => {
         // 处理 200 + success: false 的业务逻辑错误
