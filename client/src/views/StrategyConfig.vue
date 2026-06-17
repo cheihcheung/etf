@@ -63,6 +63,13 @@
 			<template #header>
 				<div style="display: flex; justify-content: space-between; align-items: center">
 					<span>策略B：长期年化中枢偏离估值策略</span>
+					<div style="display: flex; align-items: center; gap: 12px">
+						<span style="font-size: 13px; color: #606266;">组合年化中枢（%）：</span>
+						<el-input-number v-model="strategyB.centralAnnual" :min="0.1" :max="50" :step="0.5" :precision="1" style="width: 140px" />
+						<el-tooltip content="年化收益超过此中枢时高估防御减仓，低于此中枢时低估进攻加仓" placement="top" effect="dark">
+							<el-icon style="color: #909399; cursor: help;"><InfoFilled /></el-icon>
+						</el-tooltip>
+					</div>
 				</div>
 			</template>
 
@@ -201,7 +208,7 @@
  *   → 后端 config 路由调用 formatRatios() 将倍数转为 DB 存储格式后存入 strategy_a_config 表
  */
 import { ref, reactive, onMounted } from 'vue'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, InfoFilled } from '@element-plus/icons-vue'
 import { configApi, etfApi } from '../api'
 import { ElMessage } from 'element-plus'
 import type { StrategyAConfig, StrategyBConfig, StrategyLevel, RebalanceConfig } from '../types'

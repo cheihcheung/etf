@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ==========================================================================================
  * 策略与配比配置接口路由 (/api/config)
  * ==========================================================================================
@@ -184,11 +184,15 @@ router.put('/strategy-a', async (req, res) => {
 
 /**
  * GET /strategy-b
- * 获取策略 B 中枢偏离档位配置
+ * 获取策略 B 中枢偏离档位配置（含持久化的年化中枢值）
  */
 router.get('/strategy-b', async (req, res) => {
     try {
         const levels = await StrategyBConfig.findAll(null, [], 'level_order ASC');
+        
+        // 从特殊全局配置行中读取年化中枢值
+        const globalRow = levels.find(l => l.deviation_type === 'global_config');
+        const centralAnnual = globalRow ? parseFloat(globalRow.threshold) : 10.0;
         
         const overvaluedLevels = levels
             .filter(l => l.deviation_type === 'overvalued')
@@ -210,7 +214,7 @@ router.get('/strategy-b', async (req, res) => {
             success: true,
             data: {
                 enabled: true,
-                centralAnnual: 10.0,
+                centralAnnual,
                 overvaluedLevels,
                 undervaluedLevels
             }
@@ -222,15 +226,22 @@ router.get('/strategy-b', async (req, res) => {
 
 /**
  * PUT /strategy-b
- * 保存策略 B 偏离中枢配置参数
+ * 保存策略 B 偏离中枢配置参数（含年化中枢值持久化）
  */
 router.put('/strategy-b', async (req, res) => {
     try {
-        const { overvaluedLevels, undervaluedLevels } = req.body;
+        const { overvaluedLevels, undervaluedLevels, centralAnnual } = req.body;
         
         const db = require('../config/db');
         await db.transaction(async () => {
             await StrategyBConfig.deleteWhere('1 = 1');
+            // 持久化年化中枢值：使用特殊的 global_config 行存储
+            await StrategyBConfig.create({
+                deviation_type: 'global_config',
+                level_order: 0,
+                threshold: parseFloat(centralAnnual || 10.0),
+                ratios: '{}'
+            });
             for (const l of (overvaluedLevels || [])) {
                 await StrategyBConfig.create({
                     deviation_type: 'overvalued',
@@ -249,6 +260,7 @@ router.put('/strategy-b', async (req, res) => {
             }
         });
 
+        logger.info(`策略B配置保存成功，年化中枢: ${centralAnnual}%`);
         res.json({ success: true, message: '策略B配置保存成功' });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -263,7 +275,7 @@ router.get('/etf-types', async (req, res) => {
     try {
         const etfs = await Stock.findAll();
         const existingTypes = etfs.map(e => e.asset_type).filter(Boolean);
-        const defaultTypes = ['股票类', '债券类', '红利类', '商品类', '黄金类'];
+        const defaultTypes = ['股票类', '债券类', '红利类', '商品类', '黄金类', '指数类'];
         const allTypes = [...new Set([...defaultTypes, ...existingTypes])];
         res.json({ success: true, data: allTypes });
     } catch (error) {

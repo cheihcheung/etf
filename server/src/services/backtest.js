@@ -153,6 +153,8 @@ async function runBacktest(params) {
     for (const etf of etfs) {
         try {
             const dbRows = await HistoryData.getHistoryByRange(etf.code, startDate, endDate);
+            const scaleFactor = etf.scale_factor ? parseInt(etf.scale_factor) : 1;
+            
             if (dbRows && dbRows.length > 0) {
                 historyDataMap[etf.code] = dbRows.map(d => {
                     let tradeDate;
@@ -164,16 +166,21 @@ async function runBacktest(params) {
                     }
                     return {
                         tradeDate,
-                        closePrice: parseFloat(d.close_price),
-                        openPrice: parseFloat(d.open_price || 0)
+                        closePrice: parseFloat(d.close_price) / scaleFactor,
+                        openPrice: parseFloat(d.open_price || 0) / scaleFactor
                     };
                 });
-                logger.info(`从本地加载 ${etf.code} 历史数据: ${dbRows.length} 条，最早: ${historyDataMap[etf.code][0].tradeDate}`);
+                logger.info(`从本地加载 ${etf.code} 历史数据: ${dbRows.length} 条，最早: ${historyDataMap[etf.code][0].tradeDate}，应用缩小倍率: ${scaleFactor}`);
             } else {
                 // 本地无数据，回退到爬虫接口(可能有数据范围限制和限流)
                 logger.warn(`本地无 ${etf.code} 数据，回退到爬虫接口`);
                 const rawData = await spider.fetchETFHistoryData(etf.code, startDate, endDate);
-                historyDataMap[etf.code] = rawData.map(d => ({ ...d, tradeDate: String(d.tradeDate).slice(0, 10), closePrice: parseFloat(d.closePrice) }));
+                historyDataMap[etf.code] = rawData.map(d => ({
+                    ...d,
+                    tradeDate: String(d.tradeDate).slice(0, 10),
+                    closePrice: parseFloat(d.closePrice) / scaleFactor,
+                    openPrice: parseFloat(d.openPrice || 0) / scaleFactor
+                }));
             }
         } catch (e) {
             logger.error(`加载 ${etf.code} 数据失败: ${e.message}`);
@@ -253,7 +260,7 @@ async function runBacktest(params) {
     // ==========================================================
     // 为每个参与回测的 ETF 建立基础持仓状态，默认份额为0、成本为0。
     for (const etf of etfs) {
-        portfolio[etf.code] = { shares: 0, costPrice: 0, ratio: 0 };
+        portfolio[etf.code] = { shares: 0, costPrice: 0, ratio: 0, isListed: false };
     }
 
     // ==========================================================
@@ -281,7 +288,7 @@ async function runBacktest(params) {
             const amount = shares * price;
             const fee = calcFee(amount, tradeFeeRate, feeExemptFive); // 交易费用(含最低5元限制)
 
-            portfolio[etf.code] = { shares, costPrice: price, ratio };
+            portfolio[etf.code] = { shares, costPrice: price, ratio, isListed: true };
             cash -= (amount + fee); // 从现金账户扣款
             lastValidPrices[etf.code] = price; // 记忆当前有效价格
 
@@ -306,7 +313,7 @@ async function runBacktest(params) {
             // 若首日未上市，不做任何扣款，初始化份额为0。
             // 后续该标的在主循环中上市时(3.2 延迟补仓)，会自动按当时的总市值比例建仓。
             logger.warn(`[初始建仓] 标的 ${etf.code} 在首日 ${firstTradeDate} 尚未上市或无有效价格，将延迟至其上市首日自动补仓`);
-            portfolio[etf.code] = { shares: 0, costPrice: 0, ratio: 0 };
+            portfolio[etf.code] = { shares: 0, costPrice: 0, ratio: 0, isListed: false };
         }
     }
 
@@ -316,6 +323,7 @@ async function runBacktest(params) {
     for (let i = 0; i < sortedDates.length; i++) {
         const date = sortedDates[i];
         let datePrices = {};
+        let didStrategyTrade = false; // 标记当天是否执行了策略 A/B 调仓交易
 
         // ---------- 7.1 更新当日所有标的价格 + 维护价格记忆 ----------
         // 停牌/未上市当天若无行情，沿用历史最新的有效价格(绝不归零)，保证组合市值连续性。
@@ -333,15 +341,16 @@ async function runBacktest(params) {
         }
 
         // ---------- 7.2 延迟补仓(针对上市首日的标的) + 计算当日持仓总市值 ----------
-        // 自动补仓逻辑：若某标的前期未上市(shares===0)，今天有了有效价格(price>0)，
+        // 自动补仓逻辑：若某标的前期未上市且未被标记为上市(shares===0 && !isListed)，今天有了有效价格(price>0)，
         // 则按其初始占比对"当前总市值"建仓(注意：用 totalValue 而非 initialCapital)。
         let totalMarketValue = 0;
         for (const etf of etfs) {
             const holding = portfolio[etf.code];
             const price = datePrices[etf.code] || 0;
 
-            // 自动补仓：未上市标的在今天首次出现有效价格，触发延迟建仓
-            if (holding && holding.shares === 0 && price > 0) {
+            // 自动补仓：未上市标的在今天首次出现有效价格，触发延迟建仓，设置 isListed 规避后续误触发
+            if (holding && holding.shares === 0 && !holding.isListed && price > 0) {
+                holding.isListed = true; // 只要上市首日有了有效价格，立刻标记为已上市
                 const ratio = initialRatios[etf.code] || 0;
                 if (ratio > 0) {
                     const targetValue = totalValue * (ratio / 100);
@@ -451,16 +460,22 @@ async function runBacktest(params) {
             // 策略B根据组合「当前年化收益率」相对「中枢目标年化」的偏离度，动态调整仓位。
             // 年化远超中枢(高估)→减仓；年化远低于中枢(低估)→加仓。
             if (strategyBConfig) {
-                const totalReturn = (totalValue - initialCapital) / initialCapital * 100;
                 // 计算当前持有的实际年数(从回测起点到现在)，用于年化收益率计算
                 const yearsCount = (new Date(date) - new Date(startDate)) / (365 * 24 * 60 * 60 * 1000);
-                const currentAnnualReturn = calcAnnualReturn(totalReturn, Math.max(yearsCount, 0.1));
 
-                const configWithOverride = { ...strategyBConfig, centralAnnual };
-                // 偏离度 = 当前年化 - 中枢年化；正值=高估，负值=低估
-                const deviation = currentAnnualReturn - configWithOverride.centralAnnual;
+                // 增加稳定期保护：前 6 个月（0.5年）不运行策略 B，避免早期年化率放大误差导致误触发
+                if (yearsCount < 0.5) {
+                    bResult = null;
+                } else {
+                    const totalReturn = (totalValue - initialCapital) / initialCapital * 100;
+                    const currentAnnualReturn = calcAnnualReturn(totalReturn, Math.max(yearsCount, 0.1));
 
-                bResult = evaluateStrategyB(configWithOverride, deviation, currentBLevel, initialRatios, stepRatios);
+                    const configWithOverride = { ...strategyBConfig, centralAnnual };
+                    // 偏离度 = 当前年化 - 中枢年化；正值=高估，负值=低估
+                    const deviation = currentAnnualReturn - configWithOverride.centralAnnual;
+
+                    bResult = evaluateStrategyB(configWithOverride, deviation, currentBLevel, initialRatios, stepRatios);
+                }
             }
 
             // ----------------------------------------
@@ -532,6 +547,7 @@ async function runBacktest(params) {
                         totalValue = cash + tradeResults.marketValue;
                         tradeRecords.push(...tradeResults.trades.map(t => ({ ...t, date, totalValue })));
                         currentALevel = chosenResult.newLevel; // 推进策略 A 档位级别
+                        didStrategyTrade = true; // 标记当天已执行策略交易
 
                         // 创新高复位后，把历史高点也更新为当前值(避免重复触发)
                         if (chosenResult.resetHigh) {
@@ -551,6 +567,7 @@ async function runBacktest(params) {
                         totalValue = cash + tradeResults.marketValue;
                         tradeRecords.push(...tradeResults.trades.map(t => ({ ...t, date, totalValue })));
                         currentBLevel = chosenResult.newLevel; // 推进策略 B 档位级别
+                        didStrategyTrade = true; // 标记当天已执行策略交易
                     }
                 }
             }
@@ -562,7 +579,8 @@ async function runBacktest(params) {
             //   达到 rebalanceThreshold 即触发，一键把所有标的对齐回 activeTargetRatios。
             // 注意：这里对齐的是 activeTargetRatios(策略漂移后的目标)，而非 initialRatios。
             //   如果漂移回初始比例，则顺便复位策略档位级别。
-            if (rebalanceConfig && rebalanceThreshold > 0) {
+            // 额外修复：若当天已经执行了策略 A/B 的调仓交易，则直接跳过再平衡，避免同一天二次调仓及重复扣手续费
+            if (!didStrategyTrade && rebalanceConfig && rebalanceThreshold > 0) {
                 let needRebalanceTrigger = false;
                 let maxDeviationInfo = '';
 
@@ -980,28 +998,24 @@ function evaluateStrategyA(config, drawdown, historyHigh, currentValue, currentA
         };
     }
 
-    // 4. 反弹跨级退档判定：当前已加仓(档位>0且回撤>0)，且回撤收窄至更浅一档阈值以内
-    // 注意：必须跨过更浅一档的阈值才退档(避免在档位边界频繁抖动)
-    if (currentALevel > 0 && drawdown > 0) {
-        const shallowerLevelOrder = currentALevel - 1;
-        if (shallowerLevelOrder > 0) {
-            // 找到更浅一档的配置
-            const targetLevelConfig = (config.drawdownLevels || []).find(l => l.levelOrder === shallowerLevelOrder);
-            if (targetLevelConfig && drawdown < targetLevelConfig.threshold) {
-                // 按倍数模型计算退档后的目标占比
-                const ratios = {};
-                (targetLevelConfig.ratios || []).forEach(r => {
-                    const step = stepRatios[r.etfCode] || 5.0;
-                    ratios[r.etfCode] = (initialRatios[r.etfCode] || 0) + (r.targetRatio * step);
-                });
-                return {
-                    action: 'rebound',
-                    reason: `回撤收窄至 ${drawdown.toFixed(2)}%（涨至第 ${shallowerLevelOrder} 档阈值以内），下调成第 ${shallowerLevelOrder} 档配置`,
-                    ratios,
-                    newLevel: shallowerLevelOrder,
-                    resetHigh: false
-                };
-            }
+    // 4. 反弹直接退档判定（直接下调至当前回撤匹配的目标档位，支持跨级与复位，解决逐级退档滞后问题）
+    if (expectedLevel < currentALevel) {
+        if (expectedLevel === 0) {
+            return {
+                action: 'rebound',
+                reason: `回撤收窄至 ${drawdown.toFixed(2)}%（低于第 1 档阈值），退回初始配置比例`,
+                ratios: { ...initialRatios },
+                newLevel: 0,
+                resetHigh: false
+            };
+        } else {
+            return {
+                action: 'rebound',
+                reason: `回撤收窄至 ${drawdown.toFixed(2)}%，下调成第 ${expectedLevel} 档配置`,
+                ratios: expectedRatios,
+                newLevel: expectedLevel,
+                resetHigh: false
+            };
         }
     }
 

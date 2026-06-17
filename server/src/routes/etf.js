@@ -78,7 +78,7 @@ router.get('/list', async (req, res) => {
  */
 router.post('/add', async (req, res) => {
     try {
-        const { code, name, assetType } = req.body;
+        const { code, name, assetType, annualReturn, scaleFactor } = req.body;
         if (!code || !name || !assetType) {
             return res.status(400).json({ success: false, message: '请填写完整的ETF信息' });
         }
@@ -89,12 +89,14 @@ router.post('/add', async (req, res) => {
             return res.status(400).json({ success: false, message: '该ETF已存在' });
         }
         
-        // 使用 Model 一键创建
+        // 使用 Model 一键创建，支持写入目标年化及倍率字段
         await Stock.create({
             code,
             name,
             asset_type: assetType,
-            initial_ratio: 0.0000
+            initial_ratio: 0.0000,
+            annual_return: annualReturn != null ? parseFloat(annualReturn) : null,
+            scale_factor: scaleFactor != null ? parseInt(scaleFactor) : 1
         });
         
         // 抓取实时行情并利用 Model 快速同步
@@ -116,13 +118,15 @@ router.post('/add', async (req, res) => {
  */
 router.put('/update', async (req, res) => {
     try {
-        const { code, name, assetType, initialRatio } = req.body;
+        const { code, name, assetType, initialRatio, annualReturn, scaleFactor } = req.body;
         
-        // 利用 Model 进行条件更新，消灭 Raw SQL
+        // 利用 Model 进行条件更新，支持保存目标年化及倍率字段
         await Stock.updateWhere({ code }, [], {
             name: name,
             asset_type: assetType,
-            initial_ratio: initialRatio !== undefined ? parseFloat(initialRatio) : 0.0000
+            initial_ratio: initialRatio !== undefined ? parseFloat(initialRatio) : 0.0000,
+            annual_return: annualReturn != null ? parseFloat(annualReturn) : null,
+            scale_factor: scaleFactor != null ? parseInt(scaleFactor) : 1
         });
         res.json({ success: true, message: '更新成功' });
     } catch (error) {

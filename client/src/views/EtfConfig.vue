@@ -22,6 +22,9 @@
 				<el-table-column label="当前价格" width="120" align="center">
 					<template #default="{ row }">{{ row.current_price != null && row.current_price !== '' ? Number(row.current_price).toFixed(4) : '-' }}</template>
 				</el-table-column>
+				<el-table-column label="缩小倍率" width="100" align="center">
+					<template #default="{ row }">{{ row.scale_factor || 1 }}</template>
+				</el-table-column>
 				<el-table-column label="涨跌幅" width="100" align="center">
 					<template #default="{ row }">
 						<span
@@ -118,6 +121,12 @@
 						<el-option v-for="t in assetTypes" :key="t" :label="t" :value="t" />
 					</el-select>
 				</el-form-item>
+				<el-form-item label="缩小倍率" prop="scaleFactor">
+					<div style="display: flex; align-items: center; width: 100%">
+						<el-input-number v-model="etfForm.scaleFactor" :min="1" :precision="0" :step="1" style="width: 160px" />
+						<span style="color: #909399; font-size: 12px; margin-left: 8px">指数缩小整除倍数，默认 1(不缩小)</span>
+					</div>
+				</el-form-item>
 				<el-form-item label="目标年化">
 					<div style="display: flex; align-items: center; width: 100%">
 						<el-input-number v-model="etfForm.annualReturn" :min="0" :max="50" :precision="1" :step="1" style="width: 160px" />
@@ -186,7 +195,7 @@ import { formatDate, formatDateTime } from '@/utils'
 const router = useRouter()
 
 const etfList = ref<any[]>([])
-const assetTypes = ref(['股票类', '债券类', '红利类', '商品类', '黄金类'])
+const assetTypes = ref(['股票类', '债券类', '红利类', '商品类', '黄金类', '指数类'])
 const addDialogVisible = ref(false)
 const isEditing = ref(false)
 const saving = ref(false)
@@ -199,7 +208,7 @@ const syncForm = ref({
 })
 const formRef = ref<any>(null)
 
-const etfForm = ref({ code: '', name: '', assetType: '', annualReturn: null })
+const etfForm = ref({ code: '', name: '', assetType: '', annualReturn: null, scaleFactor: 1 })
 
 const rules = {
 	code: [{ required: true, message: '请输入ETF代码', trigger: 'blur' }],
@@ -231,7 +240,7 @@ const loadAssetTypes = async () => {
 
 const showAddDialog = () => {
 	isEditing.value = false
-	etfForm.value = { code: '', name: '', assetType: '', annualReturn: null }
+	etfForm.value = { code: '', name: '', assetType: '', annualReturn: null, scaleFactor: 1 }
 	addDialogVisible.value = true
 }
 
@@ -242,6 +251,7 @@ const showEditDialog = (row: any) => {
 		name: row.name,
 		assetType: row.asset_type,
 		annualReturn: row.annual_return,
+		scaleFactor: row.scale_factor || 1,
 	}
 	addDialogVisible.value = true
 }
@@ -252,10 +262,18 @@ const handleSave = async () => {
 	saving.value = true
 	try {
 		if (isEditing.value) {
-			await etfApi.update(etfForm.value)
+			await etfApi.update({
+				...etfForm.value,
+				annualReturn: etfForm.value.annualReturn,
+				scaleFactor: etfForm.value.scaleFactor,
+			})
 			ElMessage.success('修改成功')
 		} else {
-			await etfApi.add(etfForm.value)
+			await etfApi.add({
+				...etfForm.value,
+				annualReturn: etfForm.value.annualReturn,
+				scaleFactor: etfForm.value.scaleFactor,
+			})
 			ElMessage.success('添加成功')
 		}
 		addDialogVisible.value = false
@@ -331,6 +349,7 @@ const assetTypeTag = (type: string): 'primary' | 'success' | 'warning' | 'info' 
 		红利类: 'warning',
 		商品类: 'info',
 		黄金类: 'warning',
+		指数类: 'primary',
 	}
 	return map[type] || undefined
 }

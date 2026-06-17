@@ -2,8 +2,8 @@ import { request } from '@/utils'
 
 export const etfApi = {
     list: () => request.get('/etf/list'),
-    add: (data: { code: string; name: string; assetType: string }) => request.post('/etf/add', data),
-    update: (data: { code: string; name: string; assetType: string }) => request.put('/etf/update', data),
+    add: (data: { code: string; name: string; assetType: string; annualReturn?: number | null; scaleFactor?: number }) => request.post('/etf/add', data),
+    update: (data: { code: string; name: string; assetType: string; annualReturn?: number | null; scaleFactor?: number }) => request.put('/etf/update', data),
     delete: (code: string) => request.delete(`/etf/delete/${code}`),
     quote: (code: string) => request.get(`/etf/quote/${code}`),
     search: (keyword: string) => request.get('/etf/search', { params: { keyword } }),

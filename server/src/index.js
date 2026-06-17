@@ -89,8 +89,50 @@ async function startServer() {
                 await db.execute("ALTER TABLE stock ADD COLUMN step_ratio DECIMAL(5,2) DEFAULT 5.00 COMMENT '加减比步长(%)'");
                 logger.info('[DB] 成功为 stock 表追加 step_ratio 每档加减比步长字段');
             }
+            // 自动追加 annual_return 字段（ETF 目标年化收益率，用于历史走势对比基准线）
+            const annualCols = await db.query("SHOW COLUMNS FROM stock LIKE 'annual_return'");
+            if (annualCols.length === 0) {
+                await db.execute("ALTER TABLE stock ADD COLUMN annual_return DECIMAL(6,2) DEFAULT NULL COMMENT '目标年化收益率(%)'");
+                logger.info('[DB] 成功为 stock 表追加 annual_return 目标年化收益率字段');
+            }
+            // 自动追加 scale_factor 字段（指数/ETF价格缩小倍率）
+            const scaleCols = await db.query("SHOW COLUMNS FROM stock LIKE 'scale_factor'");
+            if (scaleCols.length === 0) {
+                await db.execute("ALTER TABLE stock ADD COLUMN scale_factor INT DEFAULT 1 COMMENT '价格缩小倍率'");
+                logger.info('[DB] 成功为 stock 表追加 scale_factor 价格缩小倍率字段');
+            }
         } catch (alterError) {
             logger.error(`[DB] 自动检测升级 stock 表结构失败: ${alterError.message}`);
+        }
+
+        // 自动检测并扩展 strategy_b_config 表的 deviation_type 枚举，以支持全局配置行
+        try {
+            const enumCheck = await db.query(
+                "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'strategy_b_config' AND COLUMN_NAME = 'deviation_type'"
+            );
+            if (enumCheck.length > 0 && !enumCheck[0].COLUMN_TYPE.includes('global_config')) {
+                await db.execute(
+                    "ALTER TABLE strategy_b_config MODIFY COLUMN deviation_type ENUM('overvalued','undervalued','global_config') NOT NULL COMMENT '偏离类型：overvalued高估/undervalued低估/global_config全局配置'"
+                );
+                logger.info('[DB] 成功将 strategy_b_config.deviation_type 扩展为支持 global_config');
+            }
+        } catch (alterError) {
+            logger.error(`[DB] 自动检测升级 strategy_b_config 表结构失败: ${alterError.message}`);
+        }
+
+        // 自动检测并扩展 trade_records.trade_type 枚举，以支持 'init' 和 'backtest' 等回测类型
+        try {
+            const tradeTypeCheck = await db.query(
+                "SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trade_records' AND COLUMN_NAME = 'trade_type'"
+            );
+            if (tradeTypeCheck.length > 0 && !tradeTypeCheck[0].COLUMN_TYPE.includes('init')) {
+                await db.execute(
+                    "ALTER TABLE trade_records MODIFY COLUMN trade_type ENUM('rebalance','strategy_a','strategy_b','manual','init','backtest') NOT NULL COMMENT '调仓类型'"
+                );
+                logger.info('[DB] 成功将 trade_records.trade_type 扩展为支持 init/backtest 类型');
+            }
+        } catch (alterError) {
+            logger.error(`[DB] 自动检测升级 trade_records 表结构失败: ${alterError.message}`);
         }
     }
 

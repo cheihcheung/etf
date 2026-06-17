@@ -458,7 +458,7 @@ const params = reactive<BacktestParams>({
  * 数组中存储被选中的 label 字符串：'rebalance' | 'strategyA' | 'strategyB'
  * 初始值 ['rebalance', '', ''] 表示默认仅启用再平衡
  */
-const strategyToggles = ref(['rebalance', '', ''])
+const strategyToggles = ref(['rebalance'])
 
 /** 策略A 是否启用（从 strategyToggles 派生） */
 const enableStrategyA = computed(() => strategyToggles.value.includes('strategyA'))
@@ -785,7 +785,7 @@ const loadEtfList = async () => {
 	try {
 		const etfRes = await etfApi.list()
 		const etfs = (etfRes as any).data || []
-		params.etfs = etfs.map((e: any) => ({ code: e.code, name: e.name }))
+		params.etfs = etfs.map((e: any) => ({ code: e.code, name: e.name, scale_factor: e.scale_factor }))
 
 		// 补回比例加载逻辑
 		const ratioRes: any = await configApi.getInitialRatios()
@@ -797,6 +797,17 @@ const loadEtfList = async () => {
 		params.initialRatios = ratioMap
 	} catch (e: any) {
 		ElMessage.error('加载ETF及比例失败: ' + e.message)
+	}
+}
+
+const loadStrategyBConfig = async () => {
+	try {
+		const res: any = await configApi.getStrategyB()
+		if (res.data && res.data.centralAnnual != null) {
+			params.centralAnnual = res.data.centralAnnual
+		}
+	} catch (e: any) {
+		console.error('加载策略B配置失败:', e)
 	}
 }
 
@@ -964,7 +975,7 @@ const objectSpanMethod = ({ rowIndex, columnIndex }: any) => {
 
 /** 页面挂载时并行加载 ETF 列表和历史回测记录 */
 onMounted(async () => {
-	await Promise.all([loadEtfList(), loadHistory()])
+	await Promise.all([loadEtfList(), loadHistory(), loadStrategyBConfig()])
 })
 </script>
 
