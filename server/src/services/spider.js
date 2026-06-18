@@ -28,26 +28,26 @@
  *   - fetchHS300History     : 沪深300指数历史日K线
  * ==========================================================================================
  */
-const axios = require('axios');
-const https = require('https');
-const iconv = require('iconv-lite');
-const logger = require('../utils/logger');
-const { sleep } = require('../utils/helpers');
-require('dotenv').config();
+const axios = require("axios");
+const https = require("https");
+const iconv = require("iconv-lite");
+const logger = require("../utils/logger");
+const { sleep } = require("../utils/helpers");
+require("dotenv").config();
 
 // 爬虫请求头：伪装浏览器 UA，避免被识别为机器人
-const USER_AGENT = process.env.SPIDER_USER_AGENT || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+const USER_AGENT = process.env.SPIDER_USER_AGENT || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
 // axios 实例：统一配置超时、请求头、HTTPS keepAlive
 // rejectUnauthorized:false 忽略 HTTPS 证书校验(部分行情接口证书不标准)
 const request = axios.create({
     timeout: 10000,
     headers: {
-        'User-Agent': USER_AGENT,
-        'Accept': '*/*',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
+        "User-Agent": USER_AGENT,
+        Accept: "*/*",
+        "Accept-Language": "zh-CN,zh;q=0.9",
     },
-    httpsAgent: new https.Agent({ keepAlive: true, rejectUnauthorized: false })
+    httpsAgent: new https.Agent({ keepAlive: true, rejectUnauthorized: false }),
 });
 
 /**
@@ -72,21 +72,27 @@ async function fetchWithRetry(fn, retries = 2) {
 }
 
 /**
- * 将 ETF 代码转换为腾讯接口所需的带交易所前缀代码
+ * 将 ETF 或指数代码转换为腾讯接口所需的带交易所前缀代码
  *
  * 腾讯接口要求代码前缀交易所标识：
  *   - 51/56 开头(沪市ETF) → sh + 代码，如 510300 → sh510300
  *   - 15/16 开头(深市ETF) → sz + 代码，如 159915 → sz159915
+ *   - 1B 开头(东方财富系指数) → 去掉 1B + 补 sh 前缀，如 1B0300 → sh000300
  *   - 其他默认按沪市处理
  *
- * @param {string} etfCode - 6位ETF代码，如 '510300'
- * @returns {string} 带前缀的代码，如 'sh510300'
+ * @param {string} etfCode - ETF或指数代码，如 '510300' 或 '1B0300'
+ * @returns {string} 带前缀的代码，如 'sh510300' 或 'sh000300'
  */
 function getTxCode(etfCode) {
-    if (etfCode.startsWith('51') || etfCode.startsWith('56')) {
+    // 东方财富系指数：1B + 4位数字 → sh + 补齐6位，如 1B0300 → sh000300
+    if (etfCode.startsWith("1B") || etfCode.startsWith("1b")) {
+        const numPart = etfCode.substring(2);
+        return `sh${numPart.padStart(6, "0")}`;
+    }
+    if (etfCode.startsWith("51") || etfCode.startsWith("56")) {
         return `sh${etfCode}`;
     }
-    if (etfCode.startsWith('15') || etfCode.startsWith('16')) {
+    if (etfCode.startsWith("15") || etfCode.startsWith("16")) {
         return `sz${etfCode}`;
     }
     return `sh${etfCode}`;
@@ -108,31 +114,31 @@ async function fetchETFRealTimeQuote(etfCode) {
         const txCode = getTxCode(etfCode);
         const url = `https://qt.gtimg.cn/q=${txCode}`;
         // responseType:'arraybuffer' 先拿原始字节，再用 iconv 按 GBK 解码(腾讯接口返回GBK)
-        const response = await request.get(url, { responseType: 'arraybuffer' });
-        const text = iconv.decode(Buffer.from(response.data), 'GBK');
-        if (!text || text.includes('FAILED')) return null;
+        const response = await request.get(url, { responseType: "arraybuffer" });
+        const text = iconv.decode(Buffer.from(response.data), "GBK");
+        if (!text || text.includes("FAILED")) return null;
 
         // 提取双引号内的字段串
         const match = text.match(/"(.*)"/);
         if (!match) return null;
 
         // 按 ~ 分隔，腾讯接口字段位置是固定的
-        const parts = match[1].split('~');
+        const parts = match[1].split("~");
         if (parts.length < 40) return null;
 
         return {
             code: etfCode,
-            name: parts[1] || '',                    // [1] 名称
+            name: parts[1] || "", // [1] 名称
             currentPrice: parseFloat(parts[3]) || 0, // [3] 当前价
-            lastClose: parseFloat(parts[4]) || 0,    // [4] 昨收价
-            openPrice: parseFloat(parts[5]) || 0,    // [5] 今开价
-            volume: parseInt(parts[6]) || 0,         // [6] 成交量
-            highPrice: parseFloat(parts[33]) || 0,   // [33] 最高价
-            lowPrice: parseFloat(parts[34]) || 0,    // [34] 最低价
-            changePct: parseFloat(parts[32]) || 0,   // [32] 涨跌幅%
-            amount: parseFloat(parts[37]) || 0,      // [37] 成交额
+            lastClose: parseFloat(parts[4]) || 0, // [4] 昨收价
+            openPrice: parseFloat(parts[5]) || 0, // [5] 今开价
+            volume: parseInt(parts[6]) || 0, // [6] 成交量
+            highPrice: parseFloat(parts[33]) || 0, // [33] 最高价
+            lowPrice: parseFloat(parts[34]) || 0, // [34] 最低价
+            changePct: parseFloat(parts[32]) || 0, // [32] 涨跌幅%
+            amount: parseFloat(parts[37]) || 0, // [37] 成交额
         };
-    }).catch(error => {
+    }).catch((error) => {
         logger.error(`获取ETF实时行情失败 [${etfCode}]: ${error.message}`);
         return null;
     });
@@ -160,8 +166,8 @@ async function fetchETFHistoryData(etfCode, startDate, endDate) {
         const response = await request.get(url, {
             params: {
                 // param 格式：代码,周期(day/dayweek/month),起始,结束,最大条数,复权类型(qfq前复权)
-                param: `${txCode},day,${startDate},${endDate},2000,qfq`
-            }
+                param: `${txCode},day,${startDate},${endDate},2000,qfq`,
+            },
         });
 
         const result = [];
@@ -181,7 +187,7 @@ async function fetchETFHistoryData(etfCode, startDate, endDate) {
                         highPrice: parseFloat(day[3]),
                         lowPrice: parseFloat(day[4]),
                         volume: parseInt(day[5]) || 0,
-                        changePct: 0 // 接口未返回，下面自行计算
+                        changePct: 0, // 接口未返回，下面自行计算
                     });
                 }
             }
@@ -195,7 +201,7 @@ async function fetchETFHistoryData(etfCode, startDate, endDate) {
             }
         }
         return result;
-    }).catch(error => {
+    }).catch((error) => {
         logger.error(`获取ETF历史数据失败 [${etfCode}]: ${error.message}`);
         return [];
     });
@@ -217,19 +223,17 @@ async function searchETF(keyword) {
             params: {
                 input: keyword,
                 type: 14,
-                token: 'D43BF722C8E33BDC906FB84D85E326E8', // 东财公开token
-                count: 10
-            }
+                token: "D43BF722C8E33BDC906FB84D85E326E8", // 东财公开token
+                count: 10,
+            },
         });
         if (response.data && response.data.data) {
             // 过滤：只保留ETF类型，或代码符合沪/深市ETF规则的标的
-            const etfs = response.data.data.filter(item =>
-                item.Type === 'ETF' || /^(51|56|15)\d{4}$/.test(item.Code)
-            );
-            return etfs.map(item => ({
+            const etfs = response.data.data.filter((item) => item.Type === "ETF" || /^(51|56|15)\d{4}$/.test(item.Code));
+            return etfs.map((item) => ({
                 code: item.Code,
                 name: item.Name,
-                type: 'ETF'
+                type: "ETF",
             }));
         }
         return [];
@@ -246,7 +250,7 @@ async function searchETF(keyword) {
  */
 async function fetchETFList() {
     try {
-        const codes = ['510050', '510300', '510500', '510880', '511010', '513100', '513500', '518880', '159915', '159949'];
+        const codes = ["510050", "510300", "510500", "510880", "511010", "513100", "513500", "518880", "159915", "159949"];
         const results = [];
         for (const code of codes) {
             const quote = await fetchETFRealTimeQuote(code);
@@ -270,18 +274,18 @@ async function fetchETFList() {
 async function fetchHS300Index() {
     return fetchWithRetry(async () => {
         const url = `https://qt.gtimg.cn/q=sh000300`;
-        const response = await request.get(url, { responseType: 'arraybuffer' });
-        const text = iconv.decode(Buffer.from(response.data), 'GBK');
+        const response = await request.get(url, { responseType: "arraybuffer" });
+        const text = iconv.decode(Buffer.from(response.data), "GBK");
         const match = text.match(/"(.*)"/);
         if (!match) return null;
-        const parts = match[1].split('~');
+        const parts = match[1].split("~");
         return {
-            code: '000300',
-            name: '沪深300',
+            code: "000300",
+            name: "沪深300",
             currentPrice: parseFloat(parts[3]) || 0,
             changePct: parseFloat(parts[32]) || 0,
         };
-    }).catch(error => {
+    }).catch((error) => {
         logger.error(`获取沪深300指数失败: ${error.message}`);
         return null;
     });
@@ -301,7 +305,7 @@ async function fetchHS300History(startDate, endDate) {
     return fetchWithRetry(async () => {
         const url = `https://web.ifzq.gtimg.cn/appstock/app/kline/kline`;
         const response = await request.get(url, {
-            params: { param: `sh000300,day,${startDate},${endDate},2000` }
+            params: { param: `sh000300,day,${startDate},${endDate},2000` },
         });
         const result = [];
         if (response.data && response.data.data) {
@@ -317,7 +321,7 @@ async function fetchHS300History(startDate, endDate) {
             }
         }
         return result;
-    }).catch(error => {
+    }).catch((error) => {
         logger.error(`获取沪深300历史数据失败: ${error.message}`);
         return [];
     });
@@ -329,5 +333,5 @@ module.exports = {
     searchETF,
     fetchETFList,
     fetchHS300Index,
-    fetchHS300History
+    fetchHS300History,
 };

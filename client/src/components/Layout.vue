@@ -2,7 +2,7 @@
 	<el-container style="height: 100vh">
 		<el-aside :width="isCollapse ? '64px' : '180px'" class="app-sidebar">
 			<div class="sidebar-header">
-				<span v-if="!isCollapse" class="sidebar-title">ETF策略系统</span>
+				<span v-if="!isCollapse" class="sidebar-title">股票策略系统</span>
 				<span v-else class="sidebar-title-short">ETF</span>
 			</div>
 			<el-menu :default-active="route.path" :collapse="isCollapse" :collapse-transition="false" background-color="#1d1e1f" text-color="#bfcbd9" active-text-color="#409eff" @select="handleMenuSelect">
@@ -13,16 +13,16 @@
 				<el-sub-menu index="/etf">
 					<template #title>
 						<el-icon><Coin /></el-icon>
-						<span>ETF管理</span>
+						<span>股票管理</span>
 					</template>
-					<el-menu-item index="/etf-config">
-						<span>ETF配置</span>
+					<el-menu-item index="/config">
+						<span>股票配置</span>
 					</el-menu-item>
-					<el-menu-item index="/etf-history">
+					<el-menu-item index="/history">
 						<span>历史走势</span>
 					</el-menu-item>
 				</el-sub-menu>
-				<el-menu-item index="/strategy-config">
+				<el-menu-item index="/strategy">
 					<el-icon><Setting /></el-icon>
 					<span>策略配置</span>
 				</el-menu-item>
@@ -62,10 +62,10 @@
  *   │     ├── Logo / 标题区域
  *   │     └── el-menu（导航菜单，深色主题 #1d1e1f）
  *   │           ├── 回测寻优（/backtest）
- *   │           ├── ETF管理（子菜单）
- *   │           │     ├── ETF配置（/etf-config）
- *   │           │     └── 历史走势（/etf-history）
- *   │           └── 策略配置（/strategy-config）
+ *   │           ├── 股票管理（子菜单）
+ *   │           │     ├── 股票配置（/config）
+ *   │           │     └── 历史走势（/history）
+ *   │           └── 策略配置（/strategy）
  *   └── el-container
  *         ├── el-header（顶部栏：折叠按钮 + 页面标题 + 健康状态标签 + 刷新按钮）
  *         └── el-main（主内容区，通过 <router-view /> 渲染当前路由对应的页面组件）

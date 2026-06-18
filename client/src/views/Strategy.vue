@@ -177,7 +177,7 @@
 <script setup lang="ts">
 /**
  * ============================================================================
- * 文件：StrategyConfig.vue — 策略A / 策略B 档位配置页面
+ * 文件：Strategy.vue — 策略A / 策略B 档位配置页面
  * ============================================================================
  *
  * 【页面功能】
@@ -189,21 +189,21 @@
  *   实际配比的计算公式为：
  *     actual_ratio = initialRatio + multiplier × stepRatio
  *   其中：
- *     initialRatio — 该 ETF 的初始配比（如 25%）
+ *     initialRatio — 该标的初始配比（如 25%）
  *     multiplier   — 用户在本页面配置的"偏离"值（如 -1, 0, 2）
- *     stepRatio    — 该 ETF 的步长比例（如 5%），存储在 initialRatios 表的 step_ratio 字段
+ *     stepRatio    — 该标的步长比例（如 5%），存储在 initialRatios 表的 step_ratio 字段
  *
- *   示例：某 ETF 初始 25%，stepRatio=5%，multiplier=-1
+ *   示例：某标的初始 25%，stepRatio=5%，multiplier=-1
  *     → actual_ratio = 25 + (-1) × 5 = 20%
  *
  * 【配平约束（零和偏离）】
- *   同一档位内，所有 ETF 的 multiplier × stepRatio 之和必须等于 0。
+ *   同一档位内，所有标的的 multiplier × stepRatio 之和必须等于 0。
  *   即 Σ(multiplier_i × stepRatio_i) = 0
- *   这保证：所有 ETF 的 actual_ratio 之和 = 100%（100 + offsetSum = 100）
+ *   这保证：所有标的的 actual_ratio 之和 = 100%（100 + offsetSum = 100）
  *   前端在保存前会验证此约束，不满足时弹出警告并阻止保存。
  *
  * 【数据流向】
- *   页面加载 → loadAllConfig() 并行获取 ETF 列表 + 策略A配置 + 策略B配置 + 初始比例
+ *   页面加载 → loadAllConfig() 并行获取标列表 + 策略A配置 + 策略B配置 + 初始比例
  *   保存 → PUT /api/config/strategy-a 或 /api/config/strategy-b
  *   → 后端 config 路由调用 formatRatios() 将倍数转为 DB 存储格式后存入 strategy_a_config 表
  */
@@ -216,11 +216,11 @@ import { formatDateTime, getTodayString } from '@/utils'
 
 // ===================== 基础数据 =====================
 
-/** 已启用的 ETF 列表（过滤掉 is_enabled=false 的 ETF） */
+/** 已启用的标的列表（过滤掉 is_enabled=false 的） */
 const etfList = ref<any[]>([])
-/** 各 ETF 的初始配比映射 {etfCode: initialRatio}，例如 {'510300': 25} */
+/** 各标的的初始配比映射 {etfCode: initialRatio}，例如 {'510300': 25} */
 const initialRatiosMap = ref<Record<string, number>>({})
-/** 各 ETF 的步长比例映射 {etfCode: stepRatio}，默认 5.0% */
+/** 各标的的步长比例映射 {etfCode: stepRatio}，默认 5.0% */
 const stepRatiosMap = ref<Record<string, number>>({})
 /** 策略A 保存中状态 */
 const savingA = ref(false)
@@ -234,7 +234,7 @@ const savingB = ref(false)
  *   drawdownLevels — 回撤触发档位数组，每档包含：
  *     levelOrder  — 档位序号
  *     threshold   — 回撤阈值（百分比），如 5 表示从最高点回撤 5% 时触发
- *     ratios      — 各 ETF 的偏离倍数数组 [{etfCode, targetRatio}, ...]
+ *     ratios      — 各标的的偏离倍数数组 [{etfCode, targetRatio}, ...]
  *   rallyLevels   — 反弹档位（当前前端置空，暂未使用）
  *   resetOnHigh   — 创新高时是否自动复位回撤高水位
  */
@@ -262,10 +262,10 @@ const strategyB = reactive<StrategyBConfig>({
 // ===================== 倍数读写工具函数 =====================
 
 /**
- * 从档位的 ratios 数组中读取某个 ETF 的偏离倍数
+ * 从档位的 ratios 数组中读取某个标的的偏离倍数
  * @param ratios  档位的 ratios 数组 [{etfCode, targetRatio}, ...]
- * @param etfCode 要查询的 ETF 代码
- * @returns 该 ETF 的 targetRatio（倍数），如果未配置则返回 0
+ * @param etfCode 要查询的标的代码
+ * @returns 该标的的 targetRatio（倍数），如果未配置则返回 0
  */
 const getLevelRatio = (ratios: any[], etfCode: string) => {
 	const found = ratios.find((r) => r.etfCode === etfCode)
@@ -273,10 +273,10 @@ const getLevelRatio = (ratios: any[], etfCode: string) => {
 }
 
 /**
- * 设置某个 ETF 在某档位中的偏离倍数
- * 如果该 ETF 已存在于 ratios 数组中则更新，否则新增一条记录
+ * 设置某个标的在某档位中的偏离倍数
+ * 如果该标的已存在于 ratios 数组中则更新，否则新增一条记录
  * @param ratios   档位的 ratios 数组（会被原地修改）
- * @param etfCode  ETF 代码
+ * @param etfCode  标的代码
  * @param value    要设置的倍数值（可为负数，表示减仓）
  */
 const setLevelRatio = (ratios: any[], etfCode: string, value: number) => {
@@ -327,7 +327,7 @@ const calcLevelOffsetSum = (ratios: any[]) => {
 
 /**
  * 为策略A添加一个回撤档位
- * 默认阈值为 5%，所有 ETF 的偏离倍数初始为 0（即保持原始配比不变）
+ * 默认阈值为 5%，所有标的的偏离倍数初始为 0（即保持原始配比不变）
  */
 const addLevel = (type: 'drawdown') => {
 	const newLevel = {
@@ -345,7 +345,7 @@ const removeLevel = (type: 'drawdown', idx: number) => {
 
 /**
  * 为策略B添加一个高估或低估档位
- * 默认阈值为 1%，所有 ETF 的偏离倍数初始为 0
+ * 默认阈值为 1%，所有标的的偏离倍数初始为 0
  */
 const addBLevel = (type: 'overvalued' | 'undervalued') => {
 	const newLevel = {
@@ -373,10 +373,10 @@ const removeBLevel = (type: 'overvalued' | 'undervalued', idx: number) => {
 
 /**
  * 页面初始化时并行加载所有配置数据
- * 包括：ETF 列表、策略A 配置、策略B 配置、初始配比及步长
+ * 包括：标的列表、策略A 配置、策略B 配置、初始配比及步长
  *
- * 注意：ETF 列表会过滤掉 is_enabled=false 的标的（物理隐藏），
- * 这意味着被禁用的 ETF 不会出现在策略配置界面的列中。
+ * 注意：标的列表会过滤掉 is_enabled=false 的（物理隐藏），
+ * 这意味着被禁用的不会出现在策略配置界面的列中。
  */
 const loadAllConfig = async () => {
 	try {
@@ -396,7 +396,7 @@ const loadAllConfig = async () => {
 			stepRatiosMap.value[r.etfCode] = parseFloat(r.stepRatio || 5.0)
 		})
 
-		// 过滤：仅保留 is_enabled !== false 的 ETF（被禁用的标的不显示在配置界面）
+		// 过滤：仅保留 is_enabled !== false 的（被禁用的不显示在配置界面）
 		const rawEtfs = (etfRes as any).data || []
 		etfList.value = rawEtfs.filter((item: any) => {
 			const ratioItem = savedRatios.find((r: any) => r.etfCode === item.code)
@@ -477,10 +477,9 @@ const saveStrategyA = async () => {
 
 /**
  * 保存策略B配置
- * 校验逻辑：与策略A相同，需分别校验高估档位和低估档位的配平约束。
  */
 const saveStrategyB = async () => {
-	// 验证高估每一档偏离值总和是否都等于 0%
+	// 验证所有高估档位的偏离值总和
 	for (let i = 0; i < strategyB.overvaluedLevels.length; i++) {
 		const level = strategyB.overvaluedLevels[i]
 		const offsetSum = calcLevelOffsetSum(level.ratios)
@@ -489,7 +488,7 @@ const saveStrategyB = async () => {
 			return
 		}
 	}
-	// 验证低估每一档偏离值总和是否都等于 0%
+	// 验证所有低估档位的偏离值总和
 	for (let i = 0; i < strategyB.undervaluedLevels.length; i++) {
 		const level = strategyB.undervaluedLevels[i]
 		const offsetSum = calcLevelOffsetSum(level.ratios)
@@ -515,43 +514,33 @@ const saveStrategyB = async () => {
 	}
 }
 
-/** 页面挂载时加载所有配置 */
 onMounted(() => {
 	loadAllConfig()
 })
 </script>
 
-<style>
-.strategy-config .el-form-item__label {
-	text-align: right !important;
-	justify-content: flex-end !important;
-}
-.ratio-hint-text {
-	font-size: 11px;
-	color: #909399;
-	margin-top: 4px;
-	line-height: 1.2;
-}
-</style>
-
 <style scoped>
 .level-card {
-	background: #fafafa;
 	border: 1px solid #e4e7ed;
-	border-radius: 8px;
-	padding: 16px;
+	border-radius: 6px;
+	padding: 12px;
 	margin-bottom: 12px;
+	background: #fafafa;
 }
-
 .level-header {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
-	margin-bottom: 12px;
+	margin-bottom: 8px;
 }
-
 .level-title {
-	font-weight: 600;
-	color: #303133;
+	font-weight: bold;
+	font-size: 15px;
+}
+.ratio-hint-text {
+	font-size: 12px;
+	color: #909399;
+	margin-top: 4px;
+	line-height: 1.4;
 }
 </style>

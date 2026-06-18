@@ -4,7 +4,7 @@
 			<template #header>
 				<div class="header-bar">
 					<div class="header-left">
-						<el-select v-model="selectedCode" @change="onEtfChange" style="width: 200px; margin-left: 16px" placeholder="选择ETF">
+						<el-select v-model="selectedCode" @change="onEtfChange" style="width: 200px; margin-left: 16px" placeholder="选择股票">
 							<el-option v-for="etf in etfList" :key="etf.code" :label="etf.code + ' - ' + etf.name" :value="etf.code" />
 						</el-select>
 						<el-date-picker v-model="startDate" type="date" placeholder="开始日期" value-format="YYYY-MM-DD" style="width: 150px; margin-left: 16px" />
@@ -62,7 +62,7 @@
 						</template>
 					</el-table-column>
 					<template #empty>
-						<el-empty description="请选择ETF并点击查询" />
+						<el-empty description="请选择股票并点击查询" />
 					</template>
 				</el-table>
 			</div>
@@ -76,11 +76,11 @@
 <script setup lang="ts">
 /**
  * ============================================================================
- * 文件：EtfHistory.vue — ETF 历史 K 线行情查看页面
+ * 文件：History.vue — 股票历史 K 线行情查看页面
  * ============================================================================
  *
  * 【页面功能】
- *   1. 选择 ETF 代码 + 日期区间，加载该 ETF 的历史日线 OHLCV 数据
+ *   1. 选择股票代码 + 日期区间，加载该股票的历史日线 OHLCV 数据
  *   2. 以 K 线图（蜡烛图）+ 成交量柱状图 + 年化基准线的形式展示
  *   3. 下方表格展示详细数据（日期、开/收/高/低、涨跌幅、成交量），支持分页和排序
  *
@@ -91,7 +91,7 @@
  *   dataZoom 支持鼠标滚轮缩放 + 底部滑块拖拽，默认显示最后 10% 数据
  *
  * 【年化基准线计算】
- *   从后端 stock 表获取该 ETF 的 annual_return 字段（历史年化收益率），
+ *   从后端 stock 表获取该标的的 annual_return 字段（历史年化收益率），
  *   以首日收盘价为基准，按复利公式 P = P0 × (1 + r)^(years) 计算每日的"理论价格"。
  *   以虚线形式叠加在 K 线图上，便于直观对比实际走势与年化基准的偏离程度。
  *
@@ -123,11 +123,11 @@ const router = useRouter()
 
 // ===================== 页面状态 =====================
 
-/** ETF 列表（从后端加载） */
+/** 股票列表（从后端加载） */
 const etfList = ref<any[]>([])
-/** 当前选中的 ETF 代码 */
+/** 当前选中的股票代码 */
 const selectedCode = ref('')
-/** 当前选中的 ETF 名称 */
+/** 当前选中的股票名称 */
 const selectedName = ref('')
 /** 查询起始日期，默认从 2010-01-01 */
 const startDate = ref('2010-01-01')
@@ -159,7 +159,7 @@ const pagedData = computed(() => {
 // ===================== 数据加载函数 =====================
 
 /**
- * 加载 ETF 列表，并自动选中第一个 ETF 加载其历史数据
+ * 加载股票列表，并自动选中第一个加载其历史数据
  * 如果 URL query 中已有 code 参数，则优先使用该参数
  */
 const loadEtfs = async () => {
@@ -167,7 +167,7 @@ const loadEtfs = async () => {
 		const res: any = await etfApi.list()
 		etfList.value = res.data || []
 		if (etfList.value.length > 0) {
-			// 如果尚未选中任何 ETF，默认选中第一个
+			// 如果尚未选中任何股票，默认选中第一个
 			if (!selectedCode.value) {
 				selectedCode.value = etfList.value[0].code
 				selectedName.value = etfList.value[0].name
@@ -175,12 +175,12 @@ const loadEtfs = async () => {
 			loadData()
 		}
 	} catch (e: any) {
-		ElMessage.error('加载ETF列表失败: ' + e.message)
+		ElMessage.error('加载股票列表失败: ' + e.message)
 	}
 }
 
 /**
- * ETF 选择器变化时的回调
+ * 股票选择器变化时的回调
  * 更新路由 query 参数（支持浏览器刷新后保持选中状态）并重新加载数据
  */
 const onEtfChange = (code: string) => {
@@ -191,12 +191,12 @@ const onEtfChange = (code: string) => {
 }
 
 /**
- * 根据选中的 ETF 代码和日期区间加载历史行情数据
+ * 根据选中的股票代码和日期区间加载历史行情数据
  * 加载成功后自动将分页复位到第 1 页
  */
 const loadData = async () => {
 	if (!selectedCode.value) {
-		ElMessage.warning('请选择ETF')
+		ElMessage.warning('请选择股票')
 		return
 	}
 	if (!startDate.value || !endDate.value) {
@@ -217,7 +217,7 @@ const loadData = async () => {
 
 // ===================== 年化基准计算 =====================
 
-/** 当前选中 ETF 的年化收益率（从 stock 表的 annual_return 字段获取，百分比） */
+/** 当前选中股票的年化收益率（从 stock 表的 annual_return 字段获取，百分比） */
 const annualReturn = computed(() => {
 	const etf = etfList.value.find((e) => e.code === selectedCode.value)
 	return etf ? parseFloat(etf.annual_return) || 0 : 0
@@ -420,7 +420,7 @@ const chartOption = computed(() => {
 	}
 })
 
-/** 页面挂载：从 URL query 恢复选中状态（code/startDate/endDate），然后加载 ETF 列表 */
+/** 页面挂载：从 URL query 恢复选中状态（code/startDate/endDate），然后加载股票列表 */
 onMounted(() => {
 	if (route.query.code) {
 		selectedCode.value = route.query.code as string

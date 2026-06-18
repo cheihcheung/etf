@@ -179,7 +179,7 @@
 								¥{{
 									Number(row.totalValue || row.total_value || 0).toLocaleString('zh-CN', {
 										minimumFractionDigits: 2,
-										maximumFractionDigits: 2
+										maximumFractionDigits: 2,
 									})
 								}}
 							</span>
@@ -190,7 +190,7 @@
 							<el-tag :type="row.type === 'init' ? 'success' : row.type === 'rebalance' ? 'warning' : row.type === 'strategy_a' ? 'danger' : 'info'">{{ row.type === 'init' ? '初始建仓' : row.type === 'rebalance' ? '日常再平衡' : row.type === 'strategy_a' ? '策略A调仓' : row.type === 'strategy_b' ? '策略B调仓' : '策略调仓' }}</el-tag>
 						</template>
 					</el-table-column>
-					<el-table-column prop="etfCode" label="ETF代码" width="80" align="center" />
+					<el-table-column prop="etfCode" label="股票代码" width="80" align="center" />
 					<el-table-column label="方向" width="70" align="center">
 						<template #default="{ row }">
 							<span :style="{ color: row.action === 'buy' ? '#f56c6c' : '#67c23a' }">{{ row.action === 'buy' ? '买入' : '卖出' }}</span>
@@ -260,7 +260,7 @@
 			<template #header>
 				<div style="display: flex; justify-content: space-between; align-items: center">
 					<span>历史回测记录</span>
-					<span style="font-size: 12px; color: #909399;">仅展示最新500条精简记录</span>
+					<span style="font-size: 12px; color: #909399">仅展示最新500条精简记录</span>
 				</div>
 			</template>
 			<el-table :data="pagedHistoryResults" stripe v-loading="loadingHistory">
@@ -287,14 +287,7 @@
 				</el-table-column>
 			</el-table>
 			<div style="display: flex; justify-content: flex-end; margin-top: 16px">
-				<el-pagination
-					v-model:current-page="currentPage"
-					v-model:page-size="pageSize"
-					:page-sizes="[10, 20, 50, 100]"
-					layout="total, sizes, prev, pager, next, jumper"
-					:total="historyResults.length"
-					background
-				/>
+				<el-pagination v-model:current-page="currentPage" v-model:page-size="pageSize" :page-sizes="[10, 20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" :total="historyResults.length" background />
 			</div>
 		</el-card>
 
@@ -796,7 +789,7 @@ const loadEtfList = async () => {
 		})
 		params.initialRatios = ratioMap
 	} catch (e: any) {
-		ElMessage.error('加载ETF及比例失败: ' + e.message)
+		ElMessage.error('加载股票及比例失败: ' + e.message)
 	}
 }
 
@@ -865,7 +858,7 @@ const runOptimization = async () => {
 		}
 		optimParams.baseParams.strategyAConfig = enableStrategyA.value ? (await configApi.getStrategyA()).data : null
 		optimParams.baseParams.strategyBConfig = enableStrategyB.value ? (await configApi.getStrategyB()).data : null
-		
+
 		// 寻优时同样剥离数据库再平衡配置读取，直接依据开关状态赋标识
 		optimParams.baseParams.rebalanceConfig = enableRebalance.value ? { enabled: true } : null
 		const res: any = await backtestApi.optimize(optimParams)
@@ -933,28 +926,32 @@ let position = 0
  * 监听 tradeRecords 变化，重新计算行合并数组 spanArr
  * 当回测结果更新（result.tradeRecords 改变）或首次加载时触发
  */
-watch(() => result.value?.tradeRecords, (newRecords) => {
-	spanArr.value = []
-	position = 0
-	if (!newRecords || newRecords.length === 0) return
+watch(
+	() => result.value?.tradeRecords,
+	(newRecords) => {
+		spanArr.value = []
+		position = 0
+		if (!newRecords || newRecords.length === 0) return
 
-	for (let i = 0; i < newRecords.length; i++) {
-		if (i === 0) {
-			spanArr.value.push(1)
-			position = 0
-		} else {
-			// 如果当前交易记录的日期与上一条完全一致，则累计行合并跨度并填入占位 0
-			if (newRecords[i].date === newRecords[i - 1].date) {
-				spanArr.value[position] += 1
-				spanArr.value.push(0)
-			} else {
-				// 日期不同，开始新的合并段
+		for (let i = 0; i < newRecords.length; i++) {
+			if (i === 0) {
 				spanArr.value.push(1)
-				position = i
+				position = 0
+			} else {
+				// 如果当前交易记录的日期与上一条完全一致，则累计行合并跨度并填入占位 0
+				if (newRecords[i].date === newRecords[i - 1].date) {
+					spanArr.value[position] += 1
+					spanArr.value.push(0)
+				} else {
+					// 日期不同，开始新的合并段
+					spanArr.value.push(1)
+					position = i
+				}
 			}
 		}
-	}
-}, { immediate: true })
+	},
+	{ immediate: true },
+)
 
 /**
  * el-table 的 span-method 回调

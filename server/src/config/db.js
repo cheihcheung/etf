@@ -22,21 +22,21 @@
  *   - testConnection: 健康检查(SELECT 1)，启动时调用
  * ==========================================================================================
  */
-const mysql = require('mysql2/promise');
-require('dotenv').config();
+const mysql = require("mysql2/promise");
+require("dotenv").config();
 
 // 1. 初始化 MySQL2 Promise 连接池配置
 const pool = mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
+    host: process.env.DB_HOST || "localhost",
     port: parseInt(process.env.DB_PORT) || 3306,
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || 'rootMG2024',
-    database: process.env.DB_NAME || 'etf',
+    user: process.env.DB_USER || "root",
+    password: process.env.DB_PASSWORD || "rootMG2024",
+    database: process.env.DB_NAME || "etf",
     connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 20, // 最大连接限制，默认 20
     waitForConnections: true, // 连接不足时是否等待
-    queueLimit: 0,            // 排队队列无上限限制
-    enableKeepAlive: true,    // 开启心跳保活，防止 MySQL 自动断开闲置连接
-    keepAliveInitialDelay: 0
+    queueLimit: 0, // 排队队列无上限限制
+    enableKeepAlive: true, // 开启心跳保活，防止 MySQL 自动断开闲置连接
+    keepAliveInitialDelay: 0,
 });
 
 /**
@@ -83,13 +83,13 @@ async function transaction(callback) {
     try {
         await connection.beginTransaction(); // 开启事务
         const result = await callback(connection); // 执行核心业务回调
-        await connection.commit();           // 提交事务
+        await connection.commit(); // 提交事务
         return result;
     } catch (error) {
-        await connection.rollback();         // 遇到任何错误，一键回滚事务
+        await connection.rollback(); // 遇到任何错误，一键回滚事务
         throw error;
     } finally {
-        connection.release();                // 将连接退还给池中
+        connection.release(); // 将连接退还给池中
     }
 }
 
@@ -99,11 +99,11 @@ async function transaction(callback) {
  */
 async function testConnection() {
     try {
-        const rows = await query('SELECT 1 as test');
-        console.log('[DB] 数据库池初始化成功，心跳健康测试 (SELECT 1) 通过');
+        const rows = await query("SELECT 1 as test");
+        console.log("[DB] 数据库池初始化成功，心跳健康测试 (SELECT 1) 通过");
         return true;
     } catch (error) {
-        console.error('[DB] 数据库池建立失败，请检查配置文件 .env 中数据库的配置参数。详情:', error.message);
+        console.error("[DB] 数据库池建立失败，请检查配置文件 .env 中数据库的配置参数。详情:", error.message);
         return false;
     }
 }
@@ -114,5 +114,5 @@ module.exports = {
     queryOne,
     execute,
     transaction,
-    testConnection
+    testConnection,
 };
