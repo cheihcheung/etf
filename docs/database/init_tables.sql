@@ -1,4 +1,4 @@
-﻿/*
+/*
  Navicat Premium Dump SQL
 
  Source Server         : 本地
@@ -11,7 +11,7 @@
  Target Server Version : 80012 (8.0.12)
  File Encoding         : 65001
 
- Date: 17/05/2026 13:50:57
+ Date: 18/06/2026 16:23:12
 */
 
 SET NAMES utf8mb4;
@@ -34,27 +34,7 @@ CREATE TABLE `backtest_results`  (
   `create_time` datetime NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_create_time`(`create_time` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 141 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '回测结果表' ROW_FORMAT = Dynamic;
-
--- ----------------------------
--- Table structure for stock
--- ----------------------------
-DROP TABLE IF EXISTS `stock`;
-CREATE TABLE `stock`  (
-  `id` int(11) NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-  `code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'ETF代码',
-  `name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'ETF名称',
-  `asset_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '资产类型：股票类/债券类/红利类/商品类/黄金类',
-  `current_price` decimal(12, 4) NULL DEFAULT 0.0000 COMMENT '当前价格',
-  `change_pct` decimal(10, 4) NULL DEFAULT 0.0000 COMMENT '涨跌幅(%)',
-  `update_time` datetime NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-  `initial_ratio` decimal(10, 4) NOT NULL DEFAULT 0.0000 COMMENT '初始配置占比(%)',
-  `is_enabled` tinyint(4) NULL DEFAULT 1 COMMENT '是否启用(1启用,0禁用)',
-  `step_ratio` decimal(5, 2) NULL DEFAULT 5.00 COMMENT '加减比步长(%)',
-  PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE INDEX `uk_code`(`code` ASC) USING BTREE,
-  INDEX `idx_asset_type`(`asset_type` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'ETF标的表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 141 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '回测结果表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for history_data
@@ -74,8 +54,29 @@ CREATE TABLE `history_data`  (
   UNIQUE INDEX `uk_etf_date`(`etf_code` ASC, `trade_date` ASC) USING BTREE,
   INDEX `idx_trade_date`(`trade_date` ASC) USING BTREE,
   INDEX `idx_etf_code`(`etf_code` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 9739 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '历史行情数据表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 9739 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '历史行情数据表' ROW_FORMAT = DYNAMIC;
 
+-- ----------------------------
+-- Table structure for stock
+-- ----------------------------
+DROP TABLE IF EXISTS `stock`;
+CREATE TABLE `stock`  (
+  `id` int(11) NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'ETF代码',
+  `name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'ETF名称',
+  `asset_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '资产类型：股票类/债券类/红利类/商品类/黄金类',
+  `current_price` decimal(12, 4) NULL DEFAULT 0.0000 COMMENT '当前价格',
+  `change_pct` decimal(10, 4) NULL DEFAULT 0.0000 COMMENT '涨跌幅(%)',
+  `update_time` datetime NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `initial_ratio` decimal(10, 4) NOT NULL DEFAULT 0.0000 COMMENT '初始配置占比(%)',
+  `is_enabled` tinyint(4) NULL DEFAULT 1 COMMENT '是否启用(1启用,0禁用)',
+  `step_ratio` decimal(5, 2) NULL DEFAULT 5.00 COMMENT '加减比步长(%)',
+  `annual_return` decimal(6, 2) NULL DEFAULT NULL COMMENT '目标年化收益率(%)',
+  `scale_factor` int(11) NULL DEFAULT 1 COMMENT '价格缩小倍率',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_code`(`code` ASC) USING BTREE,
+  INDEX `idx_asset_type`(`asset_type` ASC) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'ETF标的表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for strategy_a_config
@@ -90,7 +91,7 @@ CREATE TABLE `strategy_a_config`  (
   `ratios` json NULL COMMENT '当前档位各资产目标占比 JSON, 格式: {\"510300\": 40, \"161119\": 60}',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_type_level`(`trigger_type` ASC, `level_order` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 37 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '策略A档位配置表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 37 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '策略A档位配置表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for strategy_b_config
@@ -98,14 +99,14 @@ CREATE TABLE `strategy_a_config`  (
 DROP TABLE IF EXISTS `strategy_b_config`;
 CREATE TABLE `strategy_b_config`  (
   `id` int(11) NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-  `deviation_type` enum('overvalued','undervalued') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '偏离类型：overvalued高估/undervalued低估',
+  `deviation_type` enum('overvalued','undervalued','global_config') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '偏离类型：overvalued高估/undervalued低估/global_config全局配置',
   `level_order` int(11) NOT NULL COMMENT '档位顺序(从低到高)',
   `threshold` decimal(10, 4) NOT NULL COMMENT '偏离阈值(%)',
   `update_time` datetime NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `ratios` json NULL COMMENT '当前档位各资产目标占比 JSON, 格式: {\"510300\": 30, \"161119\": 70}',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_type_level`(`deviation_type` ASC, `level_order` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '策略B档位配置表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '策略B档位配置表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for trade_records
@@ -114,7 +115,7 @@ DROP TABLE IF EXISTS `trade_records`;
 CREATE TABLE `trade_records`  (
   `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `trade_time` datetime NOT NULL COMMENT '调仓时间',
-  `trade_type` enum('rebalance','strategy_a','strategy_b','manual') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '调仓类型',
+  `trade_type` enum('rebalance','strategy_a','strategy_b','manual','init','backtest') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '调仓类型',
   `etf_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'ETF代码',
   `trade_direction` enum('buy','sell') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '买卖方向',
   `shares` decimal(16, 2) NOT NULL COMMENT '买卖份额',
@@ -129,6 +130,6 @@ CREATE TABLE `trade_records`  (
   INDEX `idx_trade_time`(`trade_time` ASC) USING BTREE,
   INDEX `idx_trade_type`(`trade_type` ASC) USING BTREE,
   INDEX `idx_etf_code`(`etf_code` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 9773 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '调仓记录表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 9773 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '调仓记录表' ROW_FORMAT = DYNAMIC;
 
 SET FOREIGN_KEY_CHECKS = 1;
