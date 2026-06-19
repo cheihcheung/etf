@@ -19,6 +19,12 @@
 						<el-tag :type="assetTypeTag(row.asset_type)">{{ row.asset_type }}</el-tag>
 					</template>
 				</el-table-column>
+				<el-table-column label="对比基准" width="100" align="center">
+					<template #default="{ row }">
+						<el-tag v-if="row.is_benchmark === 1" type="success" effect="dark">是</el-tag>
+						<span v-else>-</span>
+					</template>
+				</el-table-column>
 				<el-table-column label="当前价格" width="120" align="center">
 					<template #default="{ row }">{{ row.current_price != null && row.current_price !== '' ? Number(row.current_price).toFixed(4) : '-' }}</template>
 				</el-table-column>
@@ -141,6 +147,9 @@
 						<span style="color: #909399; font-size: 12px; margin-left: 8px">用于走势对比参考</span>
 					</div>
 				</el-form-item>
+				<el-form-item label="对比基准">
+					<el-switch v-model="etfForm.isBenchmark" active-text="设为回测对比基准" />
+				</el-form-item>
 			</el-form>
 			<template #footer>
 				<el-button @click="addDialogVisible = false">取消</el-button>
@@ -156,6 +165,13 @@
 				<el-form-item label="选择股票">
 					<el-select v-model="syncForm.codes" multiple collapse-tags placeholder="请选择股票（不选则同步全部）" style="width: 100%">
 						<el-option v-for="item in etfList" :key="item.code" :label="item.code + ' - ' + item.name" :value="item.code" />
+					</el-select>
+				</el-form-item>
+				<el-form-item label="选择数据源">
+					<el-select v-model="syncForm.dataSource" style="width: 100%">
+						<el-option label="多源自动融合 (Auto Merge) - 推荐" value="merge" />
+						<el-option label="仅东方财富 (EastMoney)" value="eastmoney" />
+						<el-option label="仅腾讯行情 (Tencent)" value="tencent" />
 					</el-select>
 				</el-form-item>
 			</el-form>
@@ -212,10 +228,11 @@ const syncHistoryDialogVisible = ref(false)
 const syncForm = ref({
 	dateRange: ['2010-01-01', '2026-12-31'],
 	codes: [] as string[],
+	dataSource: 'merge',
 })
 const formRef = ref<any>(null)
 
-const etfForm = ref({ code: '', name: '', assetType: '', annualReturn: null, scaleFactor: 1 })
+const etfForm = ref({ code: '', name: '', assetType: '', annualReturn: null, scaleFactor: 1, isBenchmark: false })
 
 const rules = {
 	code: [{ required: true, message: '请输入股票代码', trigger: 'blur' }],
@@ -247,7 +264,7 @@ const loadAssetTypes = async () => {
 
 const showAddDialog = () => {
 	isEditing.value = false
-	etfForm.value = { code: '', name: '', assetType: '', annualReturn: null, scaleFactor: 1 }
+	etfForm.value = { code: '', name: '', assetType: '', annualReturn: null, scaleFactor: 1, isBenchmark: false }
 	addDialogVisible.value = true
 }
 
@@ -259,6 +276,7 @@ const showEditDialog = (row: any) => {
 		assetType: row.asset_type,
 		annualReturn: row.annual_return,
 		scaleFactor: row.scale_factor || 1,
+		isBenchmark: row.is_benchmark === 1,
 	}
 	addDialogVisible.value = true
 }
@@ -273,6 +291,7 @@ const handleSave = async () => {
 				...etfForm.value,
 				annualReturn: etfForm.value.annualReturn,
 				scaleFactor: etfForm.value.scaleFactor,
+				isBenchmark: etfForm.value.isBenchmark ? 1 : 0,
 			})
 			ElMessage.success('修改成功')
 		} else {
@@ -280,6 +299,7 @@ const handleSave = async () => {
 				...etfForm.value,
 				annualReturn: etfForm.value.annualReturn,
 				scaleFactor: etfForm.value.scaleFactor,
+				isBenchmark: etfForm.value.isBenchmark ? 1 : 0,
 			})
 			ElMessage.success('添加成功')
 		}
@@ -319,6 +339,7 @@ const syncPrices = async () => {
 const showSyncHistoryDialog = () => {
 	syncForm.value.dateRange = ['2010-01-01', '2026-12-31']
 	syncForm.value.codes = []
+	syncForm.value.dataSource = 'merge'
 	syncHistoryDialogVisible.value = true
 }
 
@@ -330,9 +351,10 @@ const handleSyncHistory = async () => {
 	syncingHistory.value = true
 	try {
 		const [startDate, endDate] = syncForm.value.dateRange
-		const res: any = await etfApi.syncHistory(startDate, endDate, syncForm.value.codes)
+		const res: any = await etfApi.syncHistory(startDate, endDate, syncForm.value.codes, syncForm.value.dataSource)
 		ElMessage.success(res.message || '历史数据同步完成')
 		syncHistoryDialogVisible.value = false
+		await loadEtfs()
 	} catch (e: any) {
 		ElMessage.error('同步历史数据失败: ' + e.message)
 	} finally {

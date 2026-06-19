@@ -134,12 +134,12 @@
 							<span class="result-cell etf-single">{{ row.etfs[code] }}{{ row.unit }}</span>
 						</template>
 					</el-table-column>
-					<el-table-column label="沪深300 (基准)" align="center" min-width="120">
+					<el-table-column v-if="result?.benchmarkMetrics" :label="(result?.benchmarkMetrics?.name || '对比基准')" align="center" min-width="120">
 						<template #default="{ row }">
 							<span class="result-cell benchmark">{{ row.benchmark }}{{ row.unit }}</span>
 						</template>
 					</el-table-column>
-					<el-table-column label="策略超额/优化" align="center" min-width="120" fixed="right">
+					<el-table-column v-if="result?.benchmarkMetrics" label="策略超额/优化" align="center" min-width="120" fixed="right">
 						<template #default="{ row }">
 							<span :class="['result-cell', row.diff >= 0 ? 'plus' : 'minus']">{{ row.diff >= 0 ? '+' : '' }}{{ row.diff.toFixed(2) }}{{ row.unit }}</span>
 						</template>
@@ -162,6 +162,11 @@
 				<el-tab-pane label="回撤走势">
 					<div style="height: 400px">
 						<v-chart :option="drawdownChartOption" style="height: 100%" autoresize />
+					</div>
+				</el-tab-pane>
+				<el-tab-pane label="历年盈亏">
+					<div style="height: 420px">
+						<v-chart :option="yearlyChartOption" style="height: 100%" autoresize />
 					</div>
 				</el-tab-pane>
 			</el-tabs>
@@ -233,7 +238,10 @@
 			<template #header>
 				<span>参数寻优结果（共{{ optimizationResult.totalCombinations }}种组合）</span>
 			</template>
-			<el-alert v-if="optimizationResult.bestParams" title="最优参数" type="success" show-icon :description="bestParamsDesc" style="margin-bottom: 16px" closable />
+			<div v-if="optimizationResult.bestParams" style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px">
+				<el-alert title="最优参数" type="success" show-icon :description="bestParamsDesc" style="flex: 1; margin-bottom: 0" />
+				<el-button type="success" @click="applyBestParams" style="white-space: nowrap; height: 60px">一键应用<br>最优参数</el-button>
+			</div>
 			<el-table :data="optimizationResult.sortedResults" stripe border max-height="500">
 				<el-table-column type="index" label="排名" width="60" align="center" />
 				<el-table-column label="参数" min-width="200" align="left">
@@ -291,22 +299,47 @@
 			</div>
 		</el-card>
 
-		<el-dialog v-model="optimizeDialogVisible" title="参数寻优设置" width="600px">
-			<el-form label-width="160px">
-				<el-form-item label="再平衡阈值遍历">
-					<el-select v-model="optimizeRanges.rebalanceThreshold" multiple placeholder="选择遍历值" style="width: 100%">
-						<el-option v-for="v in 20" :key="v" :label="v + '%'" :value="v" />
-					</el-select>
+		<el-dialog v-model="optimizeDialogVisible" title="参数寻优设置" width="580px">
+			<el-alert title="寻优说明" type="info" :closable="false" show-icon style="margin-bottom: 16px">
+				<template #default>系统将在指定范围内遍历所有参数组合，按年化收益排序输出最优配置。组合数 = 各参数取值数相乘。</template>
+			</el-alert>
+			<el-form label-width="170px">
+				<el-form-item v-if="enableRebalance">
+					<template #label>
+						<span>再平衡阈值范围(%)</span>
+					</template>
+					<div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
+						<el-input-number v-model="optimRebMin" :min="0.5" :max="20" :step="0.5" :precision="1" style="width: 110px" placeholder="最小" />
+						<span style="color:#909399">~</span>
+						<el-input-number v-model="optimRebMax" :min="0.5" :max="20" :step="0.5" :precision="1" style="width: 110px" placeholder="最大" />
+						<span style="color:#909399">步长</span>
+						<el-input-number v-model="optimRebStep" :min="0.1" :max="5" :step="0.1" :precision="1" style="width: 100px" placeholder="步长" />
+						<el-tag type="info">{{ rebalanceOptimCount }} 个值</el-tag>
+					</div>
 				</el-form-item>
-				<el-form-item label="策略A回撤阈值">
-					<el-select v-model="optimizeRates" multiple placeholder="暂不支持自动遍历">
-						<el-option label="默认" value="default" />
-					</el-select>
+				<el-form-item v-if="enableStrategyB">
+					<template #label>
+						<span>策略B年化中枢范围(%)</span>
+					</template>
+					<div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
+						<el-input-number v-model="optimCentralMin" :min="1" :max="30" :step="0.5" :precision="1" style="width: 110px" placeholder="最小" />
+						<span style="color:#909399">~</span>
+						<el-input-number v-model="optimCentralMax" :min="1" :max="30" :step="0.5" :precision="1" style="width: 110px" placeholder="最大" />
+						<span style="color:#909399">步长</span>
+						<el-input-number v-model="optimCentralStep" :min="0.5" :max="5" :step="0.5" :precision="1" style="width: 100px" placeholder="步长" />
+						<el-tag type="info">{{ centralOptimCount }} 个值</el-tag>
+					</div>
+				</el-form-item>
+				<el-form-item label="预计组合总数">
+					<el-tag :type="totalOptimCombinations > 100 ? 'warning' : 'success'" size="large">
+						{{ totalOptimCombinations }} 种组合
+						<span v-if="totalOptimCombinations > 200" style="margin-left: 6px; color: #e6a23c">⚠ 数量较多，预计耗时较长</span>
+					</el-tag>
 				</el-form-item>
 			</el-form>
 			<template #footer>
 				<el-button @click="optimizeDialogVisible = false">取消</el-button>
-				<el-button type="warning" @click="runOptimization" :loading="optimizing">开始寻优</el-button>
+				<el-button type="warning" @click="runOptimization" :loading="optimizing" :disabled="totalOptimCombinations === 0">开始寻优（{{ totalOptimCombinations }}种）</el-button>
 			</template>
 		</el-dialog>
 	</div>
@@ -428,7 +461,7 @@ const pagedHistoryResults = computed(() => {
  *   resetOnHigh              — 策略A 是否在创新高时自动复位 drawdownHighWaterMark
  */
 const params = reactive<BacktestParams>({
-	startDate: '2013-02-01',
+	startDate: '2005-05-01',
 	endDate: getTodayString(),
 	initialCapital: 1000000,
 	feeRate: 0.012,
@@ -473,15 +506,41 @@ const enablePrioritySelect = computed(() => activeStrategiesCount.value >= 2)
 
 // ===================== 参数寻优相关 =====================
 
-/**
- * 寻优范围配置（目前仅支持再平衡阈值的网格遍历）
- * rebalanceThreshold 数组中的每个值代表一个待测试的阈值参数
- */
-const optimizeRanges = reactive({ rebalanceThreshold: [1.0, 1.5, 2.0] })
-/**
- * 策略A回撤阈值的寻优选项（当前仅支持 'default' 占位，暂未实现自动遍历）
- */
-const optimizeRates = ref(['default'])
+// ===================== 参数寻优相关 =====================
+
+/** 再平衡阈值寻优区间参数 */
+const optimRebMin = ref(1.0)
+const optimRebMax = ref(3.0)
+const optimRebStep = ref(0.5)
+
+/** 策略B中枢年化寻优区间参数 */
+const optimCentralMin = ref(8.0)
+const optimCentralMax = ref(12.0)
+const optimCentralStep = ref(1.0)
+
+/** 根据 min/max/step 展开成数组（工具函数） */
+const expandRange = (min: number, max: number, step: number): number[] => {
+	const result: number[] = []
+	if (step <= 0 || min > max) return result
+	let cur = min
+	while (cur <= max + 1e-9) {
+		result.push(parseFloat(cur.toFixed(2)))
+		cur += step
+	}
+	return result
+}
+
+/** 再平衡阈值遍历的数量 */
+const rebalanceOptimCount = computed(() => enableRebalance.value ? expandRange(optimRebMin.value, optimRebMax.value, optimRebStep.value).length : 0)
+/** 策略B中枢年化遍历的数量 */
+const centralOptimCount = computed(() => enableStrategyB.value ? expandRange(optimCentralMin.value, optimCentralMax.value, optimCentralStep.value).length : 0)
+/** 总组合数 = 各维度数量相乘（至少1） */
+const totalOptimCombinations = computed(() => {
+	let count = 1
+	if (enableRebalance.value && rebalanceOptimCount.value > 0) count *= rebalanceOptimCount.value
+	if (enableStrategyB.value && centralOptimCount.value > 0) count *= centralOptimCount.value
+	return count
+})
 
 /**
  * 寻优结果中最优参数的描述文本（用于 el-alert 展示）
@@ -490,7 +549,9 @@ const optimizeRates = ref(['default'])
 const bestParamsDesc = computed(() => {
 	if (!optimizationResult.value?.bestParams) return ''
 	const bp = optimizationResult.value.bestParams
-	return `年化: ${bp.annualReturn?.toFixed(2)}%, 最大回撤: ${bp.maxDrawdown?.toFixed(2)}%, 夏普: ${bp.sharpeRatio?.toFixed(4)}`
+	const p = bp.params || {}
+	const paramStr = Object.entries(p).map(([k, v]) => `${k}=${v}`).join(', ')
+	return `参数: ${paramStr} | 年化: ${bp.annualReturn?.toFixed(2)}%, 最大回撤: ${bp.maxDrawdown?.toFixed(2)}%, 夏普: ${bp.sharpeRatio?.toFixed(4)}`
 })
 
 /** 当前回测结果中涉及的 ETF 代码列表（用于动态生成对比表格列） */
@@ -595,6 +656,28 @@ const chartOption = computed(() => {
 	// 从第一条 dailyValues 中提取所有 ETF 代码
 	const etfCodes = Object.keys(values[0]?.etfPerformances || {})
 
+	// 提取策略A/B的调仓日期集合（去重），用于在收益曲线上标注
+	const tradeRecords = result.value?.tradeRecords || []
+	const strategyADates = [...new Set(tradeRecords.filter((t: any) => t.type === 'strategy_a').map((t: any) => t.date))]
+	const strategyBDates = [...new Set(tradeRecords.filter((t: any) => t.type === 'strategy_b').map((t: any) => t.date))]
+
+	// 构建 markLine 数据：策略A用橙色，策略B用蓝色，最多各展示30条避免过度拥挤
+	const markLineData: any[] = [
+		...strategyADates.slice(0, 30).map((date: any) => ({
+			xAxis: date,
+			label: { formatter: 'A', position: 'insideEndTop', fontSize: 9 },
+			lineStyle: { color: '#e6a23c', type: 'dashed', width: 1, opacity: 0.8 }
+		})),
+		...strategyBDates.slice(0, 30).map((date: any) => ({
+			xAxis: date,
+			label: { formatter: 'B', position: 'insideEndBottom', fontSize: 9 },
+			lineStyle: { color: '#409eff', type: 'dashed', width: 1, opacity: 0.8 }
+		}))
+	]
+
+	const hasBenchmark = !!result.value?.benchmarkMetrics
+	const benchmarkLabel = result.value?.benchmarkMetrics?.name || '对比基准'
+
 	const series = [
 		{
 			name: '组合净值',
@@ -606,18 +689,27 @@ const chartOption = computed(() => {
 			itemStyle: { color: '#f56c6c' },
 			lineStyle: { width: 2 },
 			z: 10, // 置于最顶层，确保组合线不被 ETF 线遮挡
-		},
-		{
-			name: '沪深300',
+			markLine: markLineData.length > 0 ? {
+				silent: false,
+				symbol: 'none',
+				data: markLineData,
+				label: { show: true }
+			} : undefined
+		}
+	]
+
+	if (hasBenchmark) {
+		series.push({
+			name: benchmarkLabel,
 			type: 'line',
-			data: values.map((v) => v.hs300Value),
+			data: values.map((v) => v.benchmarkValue),
 			smooth: true,
 			showSymbol: false,
 			sampling: 'lttb',
 			lineStyle: { width: 2 },
 			itemStyle: { color: '#909399' },
-		},
-	]
+		} as any)
+	}
 
 	// 动态为每个 ETF 生成独立净值线
 	etfCodes.forEach((code) => {
@@ -644,7 +736,9 @@ const chartOption = computed(() => {
 			borderColor: '#eee',
 		},
 		legend: {
-			data: ['组合净值', '沪深300', ...etfCodes.map((c) => result.value?.etfMetrics?.[c]?.name || c)],
+			data: hasBenchmark
+				? ['组合净值', benchmarkLabel, ...etfCodes.map((c) => result.value?.etfMetrics?.[c]?.name || c)]
+				: ['组合净值', ...etfCodes.map((c) => result.value?.etfMetrics?.[c]?.name || c)],
 			// ETF 线默认不选中（selected: false），减少初始视觉干扰
 			selected: etfCodes.reduce((acc, c) => ({ ...acc, [result.value?.etfMetrics?.[c]?.name || c]: false }), {}),
 			bottom: 10,
@@ -762,6 +856,63 @@ const drawdownChartOption = computed(() => {
 	}
 })
 
+/**
+ * 【历年盈亏分布柱状图 ECharts 配置】
+ * 按年展示策略组合与沪深300的年度收益率，正值绿色、负值红色，双柱并排对比
+ */
+const yearlyChartOption = computed(() => {
+	const yearly = result.value?.yearlyStats
+	if (!yearly || yearly.length === 0) return {}
+	
+	const hasBenchmark = !!result.value?.benchmarkMetrics
+	const benchmarkLabel = result.value?.benchmarkMetrics?.name || '对比基准'
+
+	const years = yearly.map((y: any) => y.year)
+	const strategyData = yearly.map((y: any) => ({
+		value: y.strategyReturn,
+		itemStyle: { color: y.strategyReturn >= 0 ? '#f56c6c' : '#67c23a' }
+	}))
+	const benchmarkData = yearly.map((y: any) => ({
+		value: y.benchmarkReturn,
+		itemStyle: { color: y.benchmarkReturn >= 0 ? 'rgba(245,108,108,0.4)' : 'rgba(103,194,58,0.4)' }
+	}))
+	
+	const seriesList = [
+		{ name: '策略组合', type: 'bar', data: strategyData, barGap: '10%', barMaxWidth: 40 }
+	]
+	if (hasBenchmark) {
+		seriesList.push({ name: benchmarkLabel, type: 'bar', data: benchmarkData, barMaxWidth: 40 } as any)
+	}
+
+	return {
+		tooltip: {
+			trigger: 'axis',
+			formatter: (params: any) => {
+				const year = params[0].name
+				let html = `<b>${year}年</b><br/>`
+				params.forEach((p: any) => {
+					const color = p.value >= 0 ? '#f56c6c' : '#67c23a'
+					html += `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:6px"></span>${p.seriesName}: <b style="color:${color}">${p.value >= 0 ? '+' : ''}${p.value}%</b><br/>`
+				})
+				return html
+			}
+		},
+		legend: { 
+			data: hasBenchmark ? ['策略组合', benchmarkLabel] : ['策略组合'], 
+			bottom: 0 
+		},
+		grid: { left: '3%', right: '4%', top: '10%', bottom: '15%', containLabel: true },
+		xAxis: { type: 'category', data: years, axisLabel: { fontSize: 12 } },
+		yAxis: {
+			type: 'value',
+			name: '年度收益率(%)',
+			axisLabel: { formatter: (val: number) => `${val}%` },
+			splitLine: { lineStyle: { type: 'dashed' } }
+		},
+		series: seriesList
+	}
+})
+
 /** 金额格式化：将数字转为人民币格式（带 ¥ 前缀和千分位） */
 const formatMoney = (val: number) => {
 	if (!val && val !== 0) return '¥0.00'
@@ -848,19 +999,35 @@ const showOptimization = () => {
  *   3. 后端对每个参数组合执行完整回测，返回按夏普比率排序的结果
  *   4. 完成后关闭弹窗并展示寻优结果
  */
+/**
+ * 执行参数寻优（新版：支持区间遍历再平衡阈值 + 策略B中枢年化）
+ * 1. 根据用户设置的 min/max/step 生成候选值数组
+ * 2. 将候选数组作为 optimizationRanges 传给后端
+ * 3. 后端对每个参数组合执行完整回测，返回按年化排序的结果
+ */
 const runOptimization = async () => {
 	optimizing.value = true
 	optimizationResult.value = null
 	try {
+		// 从区间设置展开成候选值数组
+		const optimizationRanges: Record<string, number[]> = {}
+		if (enableRebalance.value) {
+			const rebValues = expandRange(optimRebMin.value, optimRebMax.value, optimRebStep.value)
+			if (rebValues.length > 0) optimizationRanges.rebalanceThreshold = rebValues
+		}
+		if (enableStrategyB.value) {
+			const centralValues = expandRange(optimCentralMin.value, optimCentralMax.value, optimCentralStep.value)
+			if (centralValues.length > 0) optimizationRanges.centralAnnual = centralValues
+		}
+
 		const optimParams = {
 			baseParams: { ...params },
-			optimizationRanges: { ...optimizeRanges },
+			optimizationRanges,
 		}
 		optimParams.baseParams.strategyAConfig = enableStrategyA.value ? (await configApi.getStrategyA()).data : null
 		optimParams.baseParams.strategyBConfig = enableStrategyB.value ? (await configApi.getStrategyB()).data : null
-
-		// 寻优时同样剥离数据库再平衡配置读取，直接依据开关状态赋标识
 		optimParams.baseParams.rebalanceConfig = enableRebalance.value ? { enabled: true } : null
+
 		const res: any = await backtestApi.optimize(optimParams)
 		optimizationResult.value = res.data
 		optimizeDialogVisible.value = false
@@ -870,6 +1037,19 @@ const runOptimization = async () => {
 	} finally {
 		optimizing.value = false
 	}
+}
+
+/**
+ * 一键应用最优参数到当前回测设置
+ * 将寻优结果中最优参数的各字段更新到 params 对象
+ */
+const applyBestParams = () => {
+	const bp = optimizationResult.value?.bestParams
+	if (!bp?.params) return
+	const p = bp.params
+	if (p.rebalanceThreshold != null) params.rebalanceThreshold = p.rebalanceThreshold
+	if (p.centralAnnual != null) params.centralAnnual = p.centralAnnual
+	ElMessage.success(`最优参数已应用：${Object.entries(p).map(([k, v]) => `${k}=${v}`).join(', ')}`)
 }
 
 /**

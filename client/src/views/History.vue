@@ -130,7 +130,7 @@ const selectedCode = ref('')
 /** 当前选中的股票名称 */
 const selectedName = ref('')
 /** 查询起始日期，默认从 2010-01-01 */
-const startDate = ref('2010-01-01')
+const startDate = ref('2000-01-01')
 /** 查询结束日期，默认到今天 */
 const endDate = ref(getTodayString())
 /** 历史行情数据（按日期升序排列） */

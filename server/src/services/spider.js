@@ -208,6 +208,83 @@ async function fetchETFHistoryData(etfCode, startDate, endDate) {
 }
 
 /**
+ * 将股票/ETF/指数代码转换为东财接口所需的 secid 格式
+ *   - 沪市主板及指数以 1. 开头
+ *   - 深市主板及指数以 0. 开头
+ */
+function getEastMoneySecid(etfCode) {
+    if (etfCode.startsWith("1B") || etfCode.startsWith("1b")) {
+        const numPart = etfCode.substring(2);
+        return `1.${numPart.padStart(6, "0")}`;
+    }
+    // 上海：以 15, 16, 18, 39 开头归为深市 (0.)，其他全部默认归为上交所 (1.)
+    if (etfCode.startsWith("15") || etfCode.startsWith("16") || etfCode.startsWith("18") || etfCode.startsWith("39")) {
+        return `0.${etfCode}`;
+    }
+    return `1.${etfCode}`;
+}
+
+/**
+ * 获取单只 ETF 的历史日K线数据(东财数据源，支持前复权)
+ *
+ * 【接口】https://push2his.eastmoney.com/api/qt/stock/kline/get
+ * 【参数】fqt=1(前复权), klt=101(日K), end=截止日, lmt=获取条数
+ * @param {string} etfCode - 证券代码
+ * @param {string} startDate - 起始日期 'YYYY-MM-DD'
+ * @param {string} endDate - 结束日期 'YYYY-MM-DD'
+ * @returns {Promise<Array>} 行情数组
+ */
+async function fetchETFHistoryDataEastMoney(etfCode, startDate, endDate) {
+    return fetchWithRetry(async () => {
+        const secid = getEastMoneySecid(etfCode);
+        const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get`;
+        // 截止日期格式化，东财端接口接收 YYYYMMDD
+        const formattedEndDate = endDate.replace(/-/g, "");
+        const response = await request.get(url, {
+            params: {
+                secid: secid,
+                fields1: "f1,f2,f3,f4,f5,f6",
+                fields2: "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+                klt: 101, // 日K
+                fqt: 1,   // 前复权
+                end: formattedEndDate,
+                lmt: 10000,
+            },
+            headers: {
+                "Referer": "https://quote.eastmoney.com/"
+            }
+        });
+
+        const result = [];
+        if (response.data && response.data.data && response.data.data.klines) {
+            const klines = response.data.data.klines;
+            for (const line of klines) {
+                const parts = line.split(",");
+                if (parts.length >= 9) {
+                    const tradeDate = parts[0];
+                    // 过滤出指定时间段内的数据
+                    if (tradeDate >= startDate && tradeDate <= endDate) {
+                        result.push({
+                            tradeDate: tradeDate,
+                            openPrice: parseFloat(parts[1]),
+                            closePrice: parseFloat(parts[2]),
+                            highPrice: parseFloat(parts[3]),
+                            lowPrice: parseFloat(parts[4]),
+                            volume: parseInt(parts[5]) || 0,
+                            changePct: parseFloat(parts[8]) || 0,
+                        });
+                    }
+                }
+            }
+        }
+        return result;
+    }).catch((error) => {
+        logger.error(`获取东财历史行情失败 [${etfCode}]: ${error.message}`);
+        return [];
+    });
+}
+
+/**
  * 按关键字搜索 ETF(使用东方财富搜索接口)
  *
  * 【接口】https://searchadapter.eastmoney.com/api/suggest/get
@@ -266,72 +343,10 @@ async function fetchETFList() {
     }
 }
 
-/**
- * 获取沪深300指数(000300)的实时报价
- * 与 fetchETFRealTimeQuote 类似，但代码固定为 sh000300(指数)。
- * @returns {Promise<Object|null>} {code,name,currentPrice,changePct}
- */
-async function fetchHS300Index() {
-    return fetchWithRetry(async () => {
-        const url = `https://qt.gtimg.cn/q=sh000300`;
-        const response = await request.get(url, { responseType: "arraybuffer" });
-        const text = iconv.decode(Buffer.from(response.data), "GBK");
-        const match = text.match(/"(.*)"/);
-        if (!match) return null;
-        const parts = match[1].split("~");
-        return {
-            code: "000300",
-            name: "沪深300",
-            currentPrice: parseFloat(parts[3]) || 0,
-            changePct: parseFloat(parts[32]) || 0,
-        };
-    }).catch((error) => {
-        logger.error(`获取沪深300指数失败: ${error.message}`);
-        return null;
-    });
-}
-
-/**
- * 获取沪深300指数(000300)的历史日K线数据
- *
- * 【接口】https://web.ifzq.gtimg.cn/appstock/app/kline/kline
- * 注意：与ETF的 fqkline 接口不同，指数用 kline 接口(无复权概念)。
- *
- * @param {string} startDate - 起始日期
- * @param {string} endDate - 结束日期
- * @returns {Promise<Array>} [{tradeDate,closePrice}] 只返回日期和收盘价
- */
-async function fetchHS300History(startDate, endDate) {
-    return fetchWithRetry(async () => {
-        const url = `https://web.ifzq.gtimg.cn/appstock/app/kline/kline`;
-        const response = await request.get(url, {
-            params: { param: `sh000300,day,${startDate},${endDate},2000` },
-        });
-        const result = [];
-        if (response.data && response.data.data) {
-            const stockData = response.data.data.sh000300;
-            if (stockData) {
-                const days = stockData.day || [];
-                for (const day of days) {
-                    // 指数只需日期和收盘价(基准对比用)
-                    if (day.length >= 3) {
-                        result.push({ tradeDate: day[0], closePrice: parseFloat(day[2]) });
-                    }
-                }
-            }
-        }
-        return result;
-    }).catch((error) => {
-        logger.error(`获取沪深300历史数据失败: ${error.message}`);
-        return [];
-    });
-}
-
 module.exports = {
     fetchETFRealTimeQuote,
     fetchETFHistoryData,
+    fetchETFHistoryDataEastMoney,
     searchETF,
     fetchETFList,
-    fetchHS300Index,
-    fetchHS300History,
 };

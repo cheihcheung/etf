@@ -11,7 +11,7 @@ import axios from 'axios'
 /** Axios 实例基础配置：所有请求默认前缀 /api，超时 60 秒，JSON 格式 */
 const request = axios.create({
     baseURL: '/api',
-    timeout: 60000, // 60秒超时（回测计算可能耗时较长）
+    timeout: 600000, // 10分钟超时（回测计算与大段历史同步可能耗时较长）
     headers: {
         'Content-Type': 'application/json',
     },

@@ -102,6 +102,7 @@ export interface BacktestResult {
   finalValue: number
   totalTrades: number
   benchmarkMetrics?: {
+    name?: string
     totalReturn: number
     annualReturn: number
     maxDrawdown: number
@@ -122,10 +123,15 @@ export interface BacktestResult {
     totalValue: number; 
     cash: number; 
     marketValue: number;
-    hs300Value?: number;
+    benchmarkValue?: number;
     drawdown?: number;
     assetRatios?: Record<string, number>;
     etfPerformances?: Record<string, number>;
+  }[]
+  yearlyStats?: {
+    year: string;
+    strategyReturn: number;
+    benchmarkReturn: number;
   }[]
 }
 

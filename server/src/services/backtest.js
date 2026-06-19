@@ -96,7 +96,7 @@ async function runBacktest(params) {
         resetOnHigh = true
     } = params;
 
-    // ===== 阶段 0：静默自清洗 —— 剥离被禁用(is_enabled=0)的 ETF =====
+    // ===== 阶段 0：静默自清洗 —— 剥离被禁用(is_enabled=0) the ETF =====
     // 极其关键的防御性逻辑：即使用户前端传入了某个已禁用的 ETF，回测引擎也会从 etfs 列表和
     // initialRatios 中物理移除它，确保禁用资产绝不参与回测。
     try {
@@ -133,17 +133,21 @@ async function runBacktest(params) {
     logger.info(`开始回测: ${startDate} ~ ${endDate}, 初始资金: ${initialCapital}, 频率: ${tradeFrequency}`);
     logger.info(`策略A传入参数配置: ${JSON.stringify(strategyAConfig)}`);
 
-    // ===== 阶段 1：精准锁定「沪深300」ETF 代码作为收益基准 =====
-    // 优先从数据库按名称模糊匹配查找沪深300，找不到则使用默认 510300。
-    let hs300Code = '510300'; // 默认值，经数据库确认
+    // ===== 阶段 1：确定收益对比基准 =====
+    // 允许用户自定义对比基准。从数据库中查找 Marked 为 is_benchmark = 1 的标的。
+    // 去掉兜底默认。若无任何标的被勾选为基准，则 benchmarkCode 为 null，本次回测无对比基准。
+    let benchmarkCode = null;
+    let benchmarkStock = null;
     try {
-        const hs300Etf = await Stock.findOne("name LIKE '%沪深300%'");
-        if (hs300Etf) {
-            hs300Code = hs300Etf.code;
-            logger.info(`基准代码锁定: ${hs300Code}`);
+        benchmarkStock = await Stock.findOne({ is_benchmark: 1 });
+        if (benchmarkStock) {
+            benchmarkCode = benchmarkStock.code;
+            logger.info(`[回测引擎] 成功从数据库加载自定义对比基准: ${benchmarkStock.name} (${benchmarkCode})`);
+        } else {
+            logger.info(`[回测引擎] 数据库未设置对比基准，本次回测不启用对比基准`);
         }
-    } catch (e) {
-        logger.warn('查询基准代码失败，使用默认 510300');
+    } catch (err) {
+        logger.error(`[回测引擎] 获取基准标的失败: ${err.message}`);
     }
 
     // ===== 阶段 2：从本地数据库读取所有 ETF 的历史数据 =====
@@ -188,37 +192,80 @@ async function runBacktest(params) {
         }
     }
 
-    // ===== 阶段 3：读取沪深300基准历史数据 =====
-    // 基准数据用于计算沪深300的独立指标(与组合对比)，缺失则回退爬虫。
-    let hs300History = [];
-    try {
-        const dbRows = await HistoryData.getHistoryByRange(hs300Code, startDate, endDate);
-        if (dbRows && dbRows.length > 0) {
-            hs300History = dbRows.map(r => {
-                let tradeDate;
-                if (r.trade_date instanceof Date) {
-                    const d = r.trade_date;
-                    tradeDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                } else {
-                    tradeDate = String(r.trade_date).slice(0, 10);
+    // ===== 阶段 3：读取对比基准历史数据 =====
+    // 基准数据用于计算基准指标(与组合对比)，仅在 benchmarkCode 有效时拉取，缺失则回退爬虫。
+    let benchmarkHistory = [];
+    if (benchmarkCode) {
+        try {
+            const dbRows = await HistoryData.getHistoryByRange(benchmarkCode, startDate, endDate);
+            if (dbRows && dbRows.length > 0) {
+                benchmarkHistory = dbRows.map(r => {
+                    let tradeDate;
+                    if (r.trade_date instanceof Date) {
+                        const d = r.trade_date;
+                        tradeDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                    } else {
+                        tradeDate = String(r.trade_date).slice(0, 10);
+                    }
+                    return { tradeDate, closePrice: parseFloat(r.close_price) };
+                });
+                logger.info(`从本地加载 ${benchmarkCode} 基准数据: ${benchmarkHistory.length} 条，最早: ${benchmarkHistory[0].tradeDate}`);
+            } else {
+                logger.warn(`本地无 ${benchmarkCode} 基准数据，回退到接口`);
+                try {
+                    benchmarkHistory = await spider.fetchETFHistoryDataEastMoney(benchmarkCode, startDate, endDate);
+                } catch (emErr) {
+                    logger.warn(`[回测引擎] 抓取东财基准数据失败: ${emErr.message}，回退到腾讯`);
                 }
-                return { tradeDate, closePrice: parseFloat(r.close_price) };
-            });
-            logger.info(`从本地加载 ${hs300Code} 基准数据: ${hs300History.length} 条，最早: ${hs300History[0].tradeDate}`);
-        } else {
-            logger.warn(`本地无 ${hs300Code} 数据，回退到接口`);
-            hs300History = await spider.fetchHS300History(startDate, endDate);
+                if (!benchmarkHistory || benchmarkHistory.length === 0) {
+                    benchmarkHistory = await spider.fetchETFHistoryData(benchmarkCode, startDate, endDate);
+                }
+                
+                // 写入本地数据库做持久化缓存，加速下次运行
+                if (benchmarkHistory && benchmarkHistory.length > 0) {
+                    for (const row of benchmarkHistory) {
+                        const existing = await HistoryData.findOne({
+                            etf_code: benchmarkCode,
+                            trade_date: row.tradeDate
+                        });
+                        if (!existing) {
+                            await HistoryData.create({
+                                etf_code: benchmarkCode,
+                                trade_date: row.tradeDate,
+                                open_price: row.openPrice || row.closePrice,
+                                close_price: row.closePrice,
+                                high_price: row.highPrice || row.closePrice,
+                                low_price: row.lowPrice || row.closePrice,
+                                volume: row.volume || 0,
+                                change_pct: 0
+                            });
+                        }
+                    }
+                    logger.info(`已将爬取的 ${benchmarkHistory.length} 条 ${benchmarkCode} 基准历史成功保存入库缓存`);
+                }
+            }
+        } catch (e) {
+            logger.error('读取基准数据失败: ' + e.message);
+            try {
+                try {
+                    benchmarkHistory = await spider.fetchETFHistoryDataEastMoney(benchmarkCode, startDate, endDate);
+                } catch (emErr) {
+                    logger.warn(`[回测引擎] 抓取东财基准数据失败: ${emErr.message}，回退到腾讯`);
+                }
+                if (!benchmarkHistory || benchmarkHistory.length === 0) {
+                    benchmarkHistory = await spider.fetchETFHistoryData(benchmarkCode, startDate, endDate);
+                }
+            } catch (爬网err) {
+                logger.error('网络抓取基准数据失败: ' + 爬网err.message);
+            }
         }
-    } catch (e) {
-        logger.error('读取基准数据失败: ' + e.message);
-        hs300History = await spider.fetchHS300History(startDate, endDate);
     }
 
     // ===== 阶段 4：生成全局日期轴 =====
-    // 将沪深300和所有ETF的交易日期合并去重并排序，形成统一的回测时间轴。
+    // 将基准和所有ETF的交易日期合并去重并排序，形成统一的回测时间轴。
     // 这样即使某天某ETF停牌，主循环依然会前进，用价格记忆填充停牌价。
     const allDates = new Set();
-    hs300History.forEach(h => allDates.add(h.tradeDate));
+    benchmarkHistory.forEach(h => allDates.add(h.tradeDate));
     Object.values(historyDataMap).forEach(data => {
         data.forEach(d => allDates.add(d.tradeDate));
     });
@@ -251,9 +298,9 @@ async function runBacktest(params) {
 
     // 价格记忆：记录每个 ETF 的最后有效价格，停牌/未上市时沿用，绝不归零(防止回测失真)
     let lastValidPrices = {};
-    // HS300 价格记忆 & 基准首价(用于将基准折算成同等初始资金的可比净值)
-    let lastHs300Price = hs300History.length > 0 ? hs300History[0].closePrice : 0;
-    const hs300BasePrice = lastHs300Price;
+    // 基准价格记忆 & 基准首价(用于将基准折算成同等初始资金的可比净值)
+    let lastBenchmarkPrice = benchmarkHistory.length > 0 ? benchmarkHistory[0].closePrice : 0;
+    const benchmarkBasePrice = lastBenchmarkPrice;
 
     // ==========================================================
     // 阶段 5：初始化持仓结构
@@ -644,14 +691,17 @@ async function runBacktest(params) {
         //   修复方式：把 marketValue 赋值为 mv（调仓后的最新市值）。
         totalMarketValue = mv;
 
-        // ---------- 7.8 计算沪深300基准净值 ----------
+        // ---------- 7.8 计算对比基准净值 ----------
         // 精确匹配当日基准价，找不到则沿用价格记忆(不回退到0)。
         // 将基准折算成「同等初始资金」的可比净值：initialCapital × (当日基准价 / 基准首价)
-        const hs300Day = hs300History.find(h => h.tradeDate === date);
-        if (hs300Day && hs300Day.closePrice > 0) {
-            lastHs300Price = hs300Day.closePrice;
+        let benchmarkValue = null;
+        if (benchmarkCode && benchmarkBasePrice > 0) {
+            const benchmarkDay = benchmarkHistory.find(h => h.tradeDate === date);
+            if (benchmarkDay && benchmarkDay.closePrice > 0) {
+                lastBenchmarkPrice = benchmarkDay.closePrice;
+            }
+            benchmarkValue = parseFloat((initialCapital * (lastBenchmarkPrice / benchmarkBasePrice)).toFixed(2));
         }
-        const hs300Value = hs300BasePrice > 0 ? parseFloat((initialCapital * (lastHs300Price / hs300BasePrice)).toFixed(2)) : initialCapital;
 
         // ---------- 7.9 记录当日资产占比详情(用于前端面积图) ----------
         const assetRatios = { cash: (cash / totalValue * 100) };
@@ -668,7 +718,7 @@ async function runBacktest(params) {
             totalValue,
             cash,
             marketValue: totalMarketValue, // 调仓后的最新市值
-            hs300Value,
+            benchmarkValue,
             drawdown: -drawdown,           // 负号表示回撤(向下为负)
             assetRatios
         });
@@ -693,18 +743,30 @@ async function runBacktest(params) {
     const annualVolatility = calcVolatility(dailyReturns);                       // 年化波动率
     const sharpeRatio = calcSharpeRatio(annualReturn, 2.5, annualVolatility);    // 夏普比率(无风险利率2.5%)
 
-    // 8.2 沪深300基准全套指标(与组合使用相同的计算口径，便于公平对比)
-    const hs300Values = dailyValues.map(d => d.hs300Value);
-    const hs300DailyReturns = [];
-    for (let i = 1; i < hs300Values.length; i++) {
-        const r = (hs300Values[i] - hs300Values[i - 1]) / hs300Values[i - 1] * 100;
-        hs300DailyReturns.push(r);
+    // 8.2 对比基准全套指标(仅在 benchmarkCode 存在时计算)
+    let benchmarkMetrics = null;
+    if (benchmarkCode) {
+        const benchmarkValues = dailyValues.map(d => d.benchmarkValue).filter(v => v !== null && v !== undefined);
+        const benchmarkDailyReturns = [];
+        for (let i = 1; i < benchmarkValues.length; i++) {
+            const r = (benchmarkValues[i] - benchmarkValues[i - 1]) / benchmarkValues[i - 1] * 100;
+            benchmarkDailyReturns.push(r);
+        }
+        const benchmarkTotalReturn = benchmarkValues.length > 0 ? (benchmarkValues[benchmarkValues.length - 1] - initialCapital) / initialCapital * 100 : 0;
+        const benchmarkAnnualReturn = calcAnnualReturn(benchmarkTotalReturn, years);
+        const benchmarkMaxDrawdown = calcMaxDrawdown(benchmarkValues);
+        const benchmarkVolatility = calcVolatility(benchmarkDailyReturns);
+        const benchmarkSharpeRatio = calcSharpeRatio(benchmarkAnnualReturn, 2.5, benchmarkVolatility);
+
+        benchmarkMetrics = {
+            name: benchmarkStock ? benchmarkStock.name : '对比基准',
+            totalReturn: parseFloat(benchmarkTotalReturn.toFixed(4)),
+            annualReturn: parseFloat(benchmarkAnnualReturn.toFixed(4)),
+            maxDrawdown: parseFloat(benchmarkMaxDrawdown.toFixed(4)),
+            annualVolatility: parseFloat(benchmarkVolatility.toFixed(4)),
+            sharpeRatio: parseFloat(benchmarkSharpeRatio.toFixed(4)),
+        };
     }
-    const hs300TotalReturn = hs300Values.length > 0 ? (hs300Values[hs300Values.length - 1] - initialCapital) / initialCapital * 100 : 0;
-    const hs300AnnualReturn = calcAnnualReturn(hs300TotalReturn, years);
-    const hs300MaxDrawdown = calcMaxDrawdown(hs300Values);
-    const hs300Volatility = calcVolatility(hs300DailyReturns);
-    const hs300SharpeRatio = calcSharpeRatio(hs300AnnualReturn, 2.5, hs300Volatility);
 
     // 8.3 为每个 ETF 建立标准化日期的价格查找表，并记录其上市首价
     // 用于把每只ETF的走势也折算成「同等初始资金」的独立净值曲线，计算其独立指标。
@@ -758,6 +820,33 @@ async function runBacktest(params) {
         };
     }
 
+    // 8.6 历年盈亏分布统计
+    // 按自然年统计每年的策略收益率和对比基准收益率，用于前端历年盈亏柱状图
+    const yearGroups = {};
+    dailyValues.forEach(d => {
+        const year = d.date.slice(0, 4);
+        if (!yearGroups[year]) {
+            // 记录每年的第一个和最后一个净值
+            yearGroups[year] = {
+                firstStrategy: d.totalValue,
+                lastStrategy: d.totalValue,
+                firstBenchmark: d.benchmarkValue,
+                lastBenchmark: d.benchmarkValue
+            };
+        }
+        yearGroups[year].lastStrategy = d.totalValue;
+        yearGroups[year].lastBenchmark = d.benchmarkValue;
+    });
+
+    const yearlyStats = Object.keys(yearGroups).sort().map(year => {
+        const g = yearGroups[year];
+        return {
+            year,
+            strategyReturn: parseFloat(((g.lastStrategy - g.firstStrategy) / g.firstStrategy * 100).toFixed(2)),
+            benchmarkReturn: benchmarkCode && g.firstBenchmark !== null && g.lastBenchmark !== null ? parseFloat(((g.lastBenchmark - g.firstBenchmark) / g.firstBenchmark * 100).toFixed(2)) : null
+        };
+    });
+
     // etfCurrentLastPrices: 记录每个ETF的最后已知价格，用于在 dailyValues 渲染时填充停牌日的净值
     const etfCurrentLastPrices = {};
 
@@ -771,13 +860,8 @@ async function runBacktest(params) {
         sharpeRatio: parseFloat(sharpeRatio.toFixed(4)),
         finalValue: parseFloat(finalTotalValue.toFixed(2)),
         totalTrades: tradeRecords.length,
-        benchmarkMetrics: { // 沪深300基准指标
-            totalReturn: parseFloat(hs300TotalReturn.toFixed(4)),
-            annualReturn: parseFloat(hs300AnnualReturn.toFixed(4)),
-            maxDrawdown: parseFloat(hs300MaxDrawdown.toFixed(4)),
-            annualVolatility: parseFloat(hs300Volatility.toFixed(4)),
-            sharpeRatio: parseFloat(hs300SharpeRatio.toFixed(4)),
-        },
+        yearlyStats, // 历年盈亏分布
+        benchmarkMetrics: benchmarkMetrics,
         etfMetrics, // 每只ETF的独立指标
         tradeRecords: tradeRecords.slice(0, 2000), // 限制返回的流水条数，避免响应过大
         dailyValues: dailyValues.map(d => {
@@ -786,6 +870,7 @@ async function runBacktest(params) {
             const currentDateStr = d.date.slice(0, 10);
 
             for (const etf of etfs) {
+
                 const priceMap = etfPriceMaps[etf.code];
                 const dayPrice = priceMap.get(currentDateStr);
 
@@ -808,7 +893,7 @@ async function runBacktest(params) {
                 totalValue: parseFloat(Number(d.totalValue).toFixed(2)),
                 cash: parseFloat(Number(d.cash).toFixed(2)),
                 marketValue: parseFloat(Number(d.marketValue).toFixed(2)),
-                hs300Value: parseFloat(Number(d.hs300Value).toFixed(2)),
+                benchmarkValue: d.benchmarkValue !== null && d.benchmarkValue !== undefined ? parseFloat(Number(d.benchmarkValue).toFixed(2)) : null,
                 drawdown: parseFloat(Number(d.drawdown).toFixed(4)),
                 etfPerformances
             };

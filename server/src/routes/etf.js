@@ -78,7 +78,7 @@ router.get('/list', async (req, res) => {
  */
 router.post('/add', async (req, res) => {
     try {
-        const { code, name, assetType, annualReturn, scaleFactor } = req.body;
+        const { code, name, assetType, annualReturn, scaleFactor, isBenchmark } = req.body;
         if (!code || !name || !assetType) {
             return res.status(400).json({ success: false, message: '请填写完整的ETF信息' });
         }
@@ -88,15 +88,21 @@ router.post('/add', async (req, res) => {
         if (existing) {
             return res.status(400).json({ success: false, message: '该ETF已存在' });
         }
+
+        // 若当前标的设为基准，则先清除其余所有标的的基准标志，以确保单一基准守恒
+        if (isBenchmark === 1) {
+            await Stock.updateWhere('1 = 1', [], { is_benchmark: 0 });
+        }
         
-        // 使用 Model 一键创建，支持写入目标年化及倍率字段
+        // 使用 Model 一键创建，支持写入目标年化、倍率及基准标识字段
         await Stock.create({
             code,
             name,
             asset_type: assetType,
             initial_ratio: 0.0000,
             annual_return: annualReturn != null ? parseFloat(annualReturn) : null,
-            scale_factor: scaleFactor != null ? parseInt(scaleFactor) : 1
+            scale_factor: scaleFactor != null ? parseInt(scaleFactor) : 1,
+            is_benchmark: isBenchmark === 1 ? 1 : 0
         });
         
         // 抓取实时行情并利用 Model 快速同步
@@ -118,15 +124,21 @@ router.post('/add', async (req, res) => {
  */
 router.put('/update', async (req, res) => {
     try {
-        const { code, name, assetType, initialRatio, annualReturn, scaleFactor } = req.body;
+        const { code, name, assetType, initialRatio, annualReturn, scaleFactor, isBenchmark } = req.body;
         
-        // 利用 Model 进行条件更新，支持保存目标年化及倍率字段
+        // 若当前标的设为基准，则先清除其余所有标的的基准标志，以确保单一基准守恒
+        if (isBenchmark === 1) {
+            await Stock.updateWhere('1 = 1', [], { is_benchmark: 0 });
+        }
+
+        // 利用 Model 进行条件更新，支持保存目标年化、倍率及基准标识字段
         await Stock.updateWhere({ code }, [], {
             name: name,
             asset_type: assetType,
             initial_ratio: initialRatio !== undefined ? parseFloat(initialRatio) : 0.0000,
             annual_return: annualReturn != null ? parseFloat(annualReturn) : null,
-            scale_factor: scaleFactor != null ? parseInt(scaleFactor) : 1
+            scale_factor: scaleFactor != null ? parseInt(scaleFactor) : 1,
+            is_benchmark: isBenchmark === 1 ? 1 : 0
         });
         res.json({ success: true, message: '更新成功' });
     } catch (error) {
@@ -315,7 +327,7 @@ router.get('/history/:code', async (req, res) => {
  */
 router.post('/sync-history', async (req, res) => {
     try {
-        const { startDate, endDate, codes } = req.body;
+        const { startDate, endDate, codes, dataSource = 'merge' } = req.body;
         if (!startDate || !endDate) {
             return res.status(400).json({ success: false, message: '请选择起止日期' });
         }
@@ -336,10 +348,23 @@ router.post('/sync-history', async (req, res) => {
         const segments = splitYears(startDate, endDate);
         for (const etf of etfs) {
             for (const seg of segments) {
-                const data = await spider.fetchETFHistoryData(etf.code, seg.start, seg.end);
-                if (data.length > 0) {
+                // 1. 抓取主要行情及备用行情
+                let data = [];
+                let fallbackData = [];
+                
+                if (dataSource === 'eastmoney') {
+                    data = await spider.fetchETFHistoryDataEastMoney(etf.code, seg.start, seg.end);
+                } else if (dataSource === 'tencent') {
+                    data = await spider.fetchETFHistoryData(etf.code, seg.start, seg.end);
+                } else {
+                    // merge 模式：以东财数据为底，用腾讯行情进行补漏
+                    data = await spider.fetchETFHistoryDataEastMoney(etf.code, seg.start, seg.end);
+                    fallbackData = await spider.fetchETFHistoryData(etf.code, seg.start, seg.end);
+                }
+                
+                // 2. 将主数据写入数据库
+                if (data && data.length > 0) {
                     for (const row of data) {
-                        // 使用 Model 查询及一键双向存储，消灭原繁杂 ON DUPLICATE KEY UPDATE 语句
                         const existingK = await HistoryData.findOne({
                             etf_code: etf.code,
                             trade_date: row.tradeDate
@@ -369,8 +394,37 @@ router.post('/sync-history', async (req, res) => {
                     }
                     totalCount += data.length;
                 }
+                
+                // 3. 在 merge 自动融合模式下，使用腾讯数据查缺补漏（仅在没有该交易日记录时创建）
+                if (dataSource === 'merge' && fallbackData && fallbackData.length > 0) {
+                    let fallbackCount = 0;
+                    for (const row of fallbackData) {
+                        const existingK = await HistoryData.findOne({
+                            etf_code: etf.code,
+                            trade_date: row.tradeDate
+                        });
+                        
+                        if (!existingK) {
+                            await HistoryData.create({
+                                etf_code: etf.code,
+                                trade_date: row.tradeDate,
+                                open_price: row.openPrice,
+                                close_price: row.closePrice,
+                                high_price: row.highPrice,
+                                low_price: row.lowPrice,
+                                volume: row.volume,
+                                change_pct: row.changePct
+                            });
+                            fallbackCount++;
+                        }
+                    }
+                    totalCount += fallbackCount;
+                    if (fallbackCount > 0) {
+                        logger.info(`[融合补差] [${etf.code} ${etf.name}] 腾讯数据源成功补漏了 ${fallbackCount} 条数据`);
+                    }
+                }
             }
-            logger.info(`历史数据同步 [${etf.code} ${etf.name}]: ${totalCount}条`);
+            logger.info(`历史数据同步 [${etf.code} ${etf.name}] 完成，同步方式: [${dataSource}]`);
         }
         logger.info(`历史数据同步完成，共${totalCount}条`);
         res.json({ success: true, message: `历史数据同步完成，共${totalCount}条` });

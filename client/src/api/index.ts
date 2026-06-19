@@ -2,13 +2,13 @@ import { request } from '@/utils'
 
 export const etfApi = {
     list: () => request.get('/etf/list'),
-    add: (data: { code: string; name: string; assetType: string; annualReturn?: number | null; scaleFactor?: number }) => request.post('/etf/add', data),
-    update: (data: { code: string; name: string; assetType: string; annualReturn?: number | null; scaleFactor?: number }) => request.put('/etf/update', data),
+    add: (data: { code: string; name: string; assetType: string; annualReturn?: number | null; scaleFactor?: number; isBenchmark?: number }) => request.post('/etf/add', data),
+    update: (data: { code: string; name: string; assetType: string; annualReturn?: number | null; scaleFactor?: number; isBenchmark?: number }) => request.put('/etf/update', data),
     delete: (code: string) => request.delete(`/etf/delete/${code}`),
     quote: (code: string) => request.get(`/etf/quote/${code}`),
     search: (keyword: string) => request.get('/etf/search', { params: { keyword } }),
     syncAll: () => request.post('/etf/sync-all'),
-    syncHistory: (startDate: string, endDate: string, codes?: string[]) => request.post('/etf/sync-history', { startDate, endDate, codes }),
+    syncHistory: (startDate: string, endDate: string, codes?: string[], dataSource?: string) => request.post('/etf/sync-history', { startDate, endDate, codes, dataSource }),
     history: (code: string, startDate: string, endDate: string) =>request.get(`/etf/history/${code}`, { params: { startDate, endDate } }),
     marketList: () => request.get('/etf/market-list'),
 }
