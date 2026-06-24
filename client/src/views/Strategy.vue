@@ -8,7 +8,7 @@
 			</template>
 
 			<div style="margin-bottom: 16px">
-				<div v-for="(level, idx) in strategyA.drawdownLevels" :key="'dd-' + idx" class="level-card">
+				<el-form v-for="(level, idx) in strategyA.drawdownLevels" :key="'dd-' + idx" class="level-card" label-position="right" label-width="180px">
 					<div class="level-header">
 						<span class="level-title">第{{ idx + 1 }}档</span>
 						<el-button type="danger" text @click="removeLevel('drawdown', idx)">删除</el-button>
@@ -50,7 +50,7 @@
 							</el-form-item>
 						</el-col>
 					</el-row>
-				</div>
+				</el-form>
 				<el-button type="primary" @click="addLevel('drawdown')" :icon="Plus" plain>添加回撤档位</el-button>
 			</div>
 
@@ -75,7 +75,7 @@
 
 			<div>
 				<el-divider content-position="left">高估档位（年化超出中枢）</el-divider>
-				<div v-for="(level, idx) in strategyB.overvaluedLevels" :key="'ov-' + idx" class="level-card">
+				<el-form v-for="(level, idx) in strategyB.overvaluedLevels" :key="'ov-' + idx" class="level-card" label-position="right" label-width="180px">
 					<div class="level-header">
 						<span class="level-title">高估第{{ idx + 1 }}档</span>
 						<el-button type="danger" text @click="removeBLevel('overvalued', idx)">删除</el-button>
@@ -117,11 +117,11 @@
 							</el-form-item>
 						</el-col>
 					</el-row>
-				</div>
+				</el-form>
 				<el-button type="primary" @click="addBLevel('overvalued')" :icon="Plus" plain>添加高估档位</el-button>
 
 				<el-divider content-position="left">低估档位（年化低于中枢）</el-divider>
-				<div v-for="(level, idx) in strategyB.undervaluedLevels" :key="'uv-' + idx" class="level-card">
+				<el-form v-for="(level, idx) in strategyB.undervaluedLevels" :key="'uv-' + idx" class="level-card" label-position="right" label-width="180px">
 					<div class="level-header">
 						<span class="level-title">低估第{{ idx + 1 }}档</span>
 						<el-button type="danger" text @click="removeBLevel('undervalued', idx)">删除</el-button>
@@ -163,7 +163,7 @@
 							</el-form-item>
 						</el-col>
 					</el-row>
-				</div>
+				</el-form>
 				<el-button type="primary" @click="addBLevel('undervalued')" :icon="Plus" plain>添加低估档位</el-button>
 			</div>
 
