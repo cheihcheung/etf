@@ -5,13 +5,13 @@
  Source Server Type    : MySQL
  Source Server Version : 80012 (8.0.12)
  Source Host           : localhost:3306
- Source Schema         : etf
+ Source Schema         : etf_strategy
 
  Target Server Type    : MySQL
  Target Server Version : 80012 (8.0.12)
  File Encoding         : 65001
 
- Date: 18/06/2026 16:23:12
+ Date: 24/06/2026 21:24:15
 */
 
 SET NAMES utf8mb4;
@@ -34,7 +34,7 @@ CREATE TABLE `backtest_results`  (
   `create_time` datetime NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_create_time`(`create_time` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 141 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '回测结果表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 3781 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '回测结果表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for history_data
@@ -54,7 +54,7 @@ CREATE TABLE `history_data`  (
   UNIQUE INDEX `uk_etf_date`(`etf_code` ASC, `trade_date` ASC) USING BTREE,
   INDEX `idx_trade_date`(`trade_date` ASC) USING BTREE,
   INDEX `idx_etf_code`(`etf_code` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 9739 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '历史行情数据表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 58416 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'ETF历史行情数据表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for stock
@@ -73,10 +73,11 @@ CREATE TABLE `stock`  (
   `step_ratio` decimal(5, 2) NULL DEFAULT 5.00 COMMENT '加减比步长(%)',
   `annual_return` decimal(6, 2) NULL DEFAULT NULL COMMENT '目标年化收益率(%)',
   `scale_factor` int(11) NULL DEFAULT 1 COMMENT '价格缩小倍率',
+  `is_benchmark` tinyint(4) NULL DEFAULT 0 COMMENT '是否设为回测对比基准',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_code`(`code` ASC) USING BTREE,
   INDEX `idx_asset_type`(`asset_type` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'ETF标的表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 20 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'ETF基础信息表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for strategy_a_config
@@ -91,7 +92,7 @@ CREATE TABLE `strategy_a_config`  (
   `ratios` json NULL COMMENT '当前档位各资产目标占比 JSON, 格式: {\"510300\": 40, \"161119\": 60}',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_type_level`(`trigger_type` ASC, `level_order` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 37 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '策略A档位配置表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 128 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '策略A档位配置表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for strategy_b_config
@@ -106,7 +107,7 @@ CREATE TABLE `strategy_b_config`  (
   `ratios` json NULL COMMENT '当前档位各资产目标占比 JSON, 格式: {\"510300\": 30, \"161119\": 70}',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_type_level`(`deviation_type` ASC, `level_order` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '策略B档位配置表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '策略B档位配置表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for trade_records
@@ -130,6 +131,6 @@ CREATE TABLE `trade_records`  (
   INDEX `idx_trade_time`(`trade_time` ASC) USING BTREE,
   INDEX `idx_trade_type`(`trade_type` ASC) USING BTREE,
   INDEX `idx_etf_code`(`etf_code` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 9773 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '调仓记录表' ROW_FORMAT = DYNAMIC;
+) ENGINE = InnoDB AUTO_INCREMENT = 13585 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '调仓记录表' ROW_FORMAT = Dynamic;
 
 SET FOREIGN_KEY_CHECKS = 1;
