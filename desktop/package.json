@@ -1,0 +1,67 @@
+{
+    "name": "etf-strategy-desktop",
+    "version": "1.0.0",
+    "description": "ETF多资产动态配置策略系统 - 桌面版",
+    "main": "main.js",
+    "scripts": {
+        "dev": "concurrently \"npm run dev:renderer\" \"wait-on http://localhost:5173 && electron main.js\"",
+        "dev:renderer": "cd client && npm run dev",
+        "dist": "npm run build:renderer && electron-builder",
+        "build:renderer": "cd client && npm run build",
+        "postinstall": "electron-rebuild -f -w better-sqlite3"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/cheihcheung/etf.git"
+    },
+    "keywords": [
+        "ETF",
+        "策略回测",
+        "量化投资",
+        "Electron"
+    ],
+    "author": "",
+    "license": "ISC",
+    "bugs": {
+        "url": "https://github.com/cheihcheung/etf/issues"
+    },
+    "homepage": "https://github.com/cheihcheung/etf#readme",
+    "devDependencies": {
+        "@electron/rebuild": "^4.0.4",
+        "concurrently": "^10.0.3",
+        "electron": "^42.5.0",
+        "electron-builder": "^26.15.3",
+        "wait-on": "^9.0.10"
+    },
+    "dependencies": {
+        "axios": "^1.18.1",
+        "better-sqlite3": "^12.11.1",
+        "iconv-lite": "^0.7.2"
+    },
+    "build": {
+        "appId": "com.etf.strategy",
+        "productName": "ETF策略系统",
+        "directories": {
+            "output": "dist"
+        },
+        "files": [
+            "**/*",
+            "!data/**",
+            "!dist/**",
+            "!scripts/**"
+        ],
+        "extraResources": [
+            {
+                "from": "client/dist",
+                "to": "client/dist"
+            }
+        ],
+        "win": {
+            "target": "nsis"
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true
+        }
+    }
+}

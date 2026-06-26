@@ -1,72 +1,113 @@
 # ETF 多资产动态配置策略系统
 
-> 基于前后端分离架构的 ETF 量化回测与参数寻优平台。支持多资产动态配置、双策略并行执行、历史区间回测与三维参数寻优，全程可视化分析。
+> 基于 ETF 量化回测与参数寻优平台。支持多资产动态配置、双策略并行执行、历史区间回测与三维参数寻优，全程可视化分析。提供 **web 网页版**（Express + MySQL，前后端分离）与 **desktop 桌面版**（Electron + SQLite，开箱即用）两套**完全独立**的实现，代码不共享。
 
 ## 技术栈
 
-**前端** | Vue 3 + TypeScript + Vite 5 + Element Plus 2 + ECharts 5 + Vue Router 4 + Pinia
-**后端** | Node.js + Express 4 + MySQL 8.0 + MySQL2 + Winston
-**数据** | 腾讯行情 API（实时 + 历史 K 线）
+**web 前端** | Vue 3 + TypeScript + Vite 5 + Element Plus 2 + ECharts 5 + Vue Router 4
+**web 后端** | Node.js + Express 4 + MySQL 8.0 + MySQL2 + Winston
+**desktop** | Electron 42 + better-sqlite3（SQLite，免安装数据库）+ Vue 3 前端
+**数据源** | 腾讯行情 API（实时 + 历史 K 线）+ 东方财富（搜索 + K 线）
 
 ## 快速开始
 
-### 前置条件
+### desktop 桌面版（推荐，免数据库）
 
-- Node.js 20+
-- MySQL 8.0+
+```bash
+cd desktop
+npm install
+npm run dev
+```
 
-### 安装
+SQLite 数据库在 `desktop/data/` 自动创建，开箱即用。
+
+### web 网页版（需 MySQL）
 
 ```bash
 # 1. 初始化数据库
 mysql -u root -p < docs/database/init_tables.sql
 
-# 2. 启动后端（默认 3001 端口）
-cd server
+# 2. 启动后端
+cd web/server
+cp .env.demo .env   # 按需修改数据库连接信息
 npm install
-npm run dev
+npm run dev          # 默认 3001 端口
 
-# 3. 启动前端（默认 8088 端口）
-cd client
+# 3. 启动前端（另开终端）
+cd web/client
 npm install
-npm run dev
+npm run dev          # 默认 5173 端口，自动代理 /api 到 3001
 ```
 
-### 环境变量（可选）
+### 打包桌面应用
 
-后端支持通过 `.env` 文件配置：
-
-| 变量        | 默认值     | 说明       |
-| ----------- | ---------- | ---------- |
-| DB_HOST     | localhost  | 数据库地址 |
-| DB_PORT     | 3306       | 数据库端口 |
-| DB_USER     | root       | 数据库用户 |
-| DB_PASSWORD | rootMG2024 | 数据库密码 |
-| DB_NAME     | etf        | 数据库名   |
-| SERVER_PORT | 3001       | 后端端口   |
+```bash
+cd desktop
+npm run dist          # 产物在 desktop/dist/
+```
 
 ## 项目结构
 
 ```
 etf/
-├── client/                    # 前端 (Vue 3 + TS + Vite)
-│   └── src/
-│       ├── api/              # API 接口层
-│       ├── components/       # 公共组件
-│       ├── router/           # 路由配置
-│       ├── types/            # TS 类型定义
-│       ├── utils/            # 工具函数 (http.ts, format.ts)
-│       └── views/            # 4 个核心页面
-├── server/                    # 后端 (Express)
-│   └── src/
-│       ├── config/           # 数据库连接池配置
-│       ├── models/           # 数据模型 (BaseModel ORM)
-│       ├── routes/           # 4 组 RESTful 路由
-│       ├── services/         # 回测引擎 + 爬虫
-│       └── utils/            # 日志、指标计算
-└── docs/                      # 详细文档
-    └── database/             # 建表脚本
+├── web/                       # web 网页版（BS 架构，完全独立）
+│   ├── client/                # 前端 (Vue 3 + TS + Vite)，仅 HTTP 通信
+│   │   └── src/
+│   │       ├── api/           # API 接口层
+│   │       ├── components/    # Layout 布局（网页侧边栏风格）
+│   │       ├── router/        # 路由配置
+│   │       ├── utils/         # electron-api.ts(纯 HTTP) + http.ts
+│   │       └── views/         # 4 个核心页面
+│   └── server/                # 后端 (Express + MySQL)
+│       └── src/
+│           ├── config/        # 数据库连接池配置
+│           ├── models/        # 数据模型 (BaseModel ORM)
+│           ├── routes/        # RESTful 路由
+│           ├── services/      # 回测引擎 + 爬虫(spider.js)
+│           └── utils/         # 日志、指标计算(helpers.js)
+├── desktop/                   # desktop 桌面版（CS 架构，完全独立）
+│   ├── client/                # 前端 (Vue 3 + TS + Vite)，仅 IPC 通信
+│   │   └── src/
+│   │       ├── components/    # Layout 布局（桌面标签页风格）
+│   │       ├── router/        # 路由配置
+│   │       ├── utils/         # electron-api.ts(纯 IPC)
+│   │       └── views/         # 4 个核心页面
+│   ├── models/                # SQLite 数据模型
+│   ├── services/              # 回测引擎
+│   ├── data/                  # SQLite 数据库（运行时生成）
+│   ├── main.js                # Electron 主进程入口
+│   ├── preload.js             # 预加载脚本
+│   ├── database.js            # SQLite 封装
+│   ├── ipc-handlers.js        # IPC 处理器
+│   ├── spider.js              # 爬虫模块（desktop 独立版）
+│   └── utils.js               # 量化指标计算（desktop 独立版）
+├── docs/                      # 详细文档
+│   └── database/              # 建表脚本
+├── .gitignore
+└── README.md
 ```
+
+### 双架构设计（完全独立，代码不共享）
+
+```
+   ┌─────────────────────────┐         ┌─────────────────────────┐
+   │       web/ (BS)         │         │     desktop/ (CS)       │
+   │  Express + MySQL        │         │  Electron + SQLite      │
+   │                         │         │                         │
+   │  client/ ──HTTP──▶ server/        │  client/ ──IPC──▶ main.js
+   │  (Vue3,纯HTTP)  (Express)         │  (Vue3,纯IPC)  (Electron)
+   │                    │              │                   │     │
+   │                    ▼              │                   ▼     │
+   │              spider.js            │             spider.js   │
+   │              helpers.js           │             utils.js    │
+   │              (web 独立)           │             (desktop 独立)
+   │                    │              │                   │     │
+   │                    ▼              │                   ▼     │
+   │                  MySQL            │                SQLite   │
+   └─────────────────────────┘         └─────────────────────────┘
+```
+
+两套实现各自维护爬虫和量化指标计算代码，互不依赖。web 走 HTTP + MySQL，desktop 走 IPC + SQLite，前端布局风格也各自独立（web 侧边栏 / desktop 顶部标签页）。
 
 ## 核心功能
 
@@ -103,11 +144,18 @@ etf/
 
 ## 系统架构
 
-### MVC 三层
+### MVC 三层（web 后端）
 
 ```
 路由层 (routes/)  → 服务层 (services/)  → 模型层 (models/)
   HTTP 请求分发      核心算法与策略       BaseModel ORM
+```
+
+### desktop IPC 三层
+
+```
+渲染进程 (client/)  → IPC 通道 (preload)  → 主进程 (ipc-handlers.js)
+  Vue 3 页面请求       contextBridge 桥接     调用模型/服务，操作 SQLite
 ```
 
 ### 数据库 6 张表
@@ -120,6 +168,8 @@ etf/
 | backtest_results  | 回测结果排行       |
 | strategy_a_config | 策略 A 档位配置    |
 | strategy_b_config | 策略 B 档位配置    |
+
+> web 版用 MySQL（建表脚本见 `docs/database/init_tables.sql`），desktop 版用 SQLite（`database.js` 启动时自动建表）。
 
 ### 回测流程
 
@@ -134,7 +184,8 @@ etf/
 
 ### 技术特色
 
-- **自研极简 ORM**：基于 `BaseModel` 的 ThinkPHP 风格封装，参数绑定防 SQL 注入
+- **自研极简 ORM**（web）：基于 `BaseModel` 的 ThinkPHP 风格封装，参数绑定防 SQL 注入
+- **SQLite 直连**（desktop）：`better-sqlite3` 同步 API，无需 ORM 层
 - **防爆盘保护**：参数寻优模式下禁止写入大 JSON 字段
 - **统一响应规范**：`{ success, data, message }` 格式
 
@@ -149,6 +200,7 @@ etf/
 | [API 接口文档](docs/05-API接口文档.md)  | 全部 RESTful 接口定义            |
 | [策略算法文档](docs/06-策略算法文档.md) | 双策略原理与公式                 |
 | [部署文档](docs/07-部署文档.md)         | 部署指南与常见问题               |
+| [目录结构说明](docs/08-目录结构说明.md) | web/desktop 独立架构目录拆解     |
 | [项目需求文档](docs/项目需求文档.md)    | 早期需求分析（含与实际差异说明） |
 
 ## 开发计划
@@ -157,7 +209,7 @@ etf/
 - [x] 核心回测引擎
 - [x] 双策略算法
 - [x] 参数寻优功能
+- [x] Electron 桌面版（desktop 独立架构）
 - [ ] 实盘模拟交易
 - [ ] 多组合并行回测对比
 - [ ] 自定义策略脚本
-- [ ] Electron 桌面版
