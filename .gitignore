@@ -5,16 +5,13 @@
 .env
 
 # 依赖
-/client/node_modules/*
-/server/node_modules/*
-/electron/node_modules/*
-/shared/node_modules/*
 node_modules
 
-# CS 运行时数据
-/electron/data/*
-/data/*
+# 桌面端运行时数据
+/desktop/data/*
 
-# CS 打包输出
-/electron/dist/*
-/dist/*
+# 桌面端打包输出
+/desktop/dist/*
+
+# 前端构建产物
+/desktop/client/dist/*

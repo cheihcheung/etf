@@ -10,16 +10,40 @@
  * ==========================================================================================
  */
 
-const { app, BrowserWindow, ipcMain, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, protocol, net } = require('electron');
 const path = require('path');
-const Database = require('./database');
-const { registerIpcHandlers } = require('./ipc-handlers');
+const Database = require('./src/database');
+const { registerIpcHandlers } = require('./src/ipc-handlers');
 
 // 开发环境判断
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 let mainWindow;
 let db;
+
+// ========== 注册自定义协议，解决 file:// 下 ES Module 无法加载的问题 ==========
+// 生产环境使用 app:// 协议加载前端资源，绕过 file:// 的 CORS 限制
+protocol.registerSchemesAsPrivileged([
+    {
+        scheme: 'app',
+        privileges: {
+            secure: true,
+            standard: true,
+            supportFetchAPI: true,
+            corsEnabled: true,
+            stream: true
+        }
+    }
+]);
+
+/**
+ * 获取前端静态文件根目录
+ */
+function getFrontendBasePath() {
+    return isDev
+        ? path.join(__dirname, 'client/dist')
+        : path.join(process.resourcesPath, 'client/dist');
+}
 
 /**
  * 创建主窗口
@@ -30,7 +54,7 @@ function createWindow() {
         height: 900,
         minWidth: 1200,
         minHeight: 700,
-        autoHideMenuBar: true, // 隐藏系统菜单栏
+        autoHideMenuBar: true,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
@@ -39,15 +63,21 @@ function createWindow() {
         title: 'ETF策略系统'
     });
 
-    // 移除应用菜单（彻底关闭系统菜单）
+    // 移除应用菜单
     Menu.setApplicationMenu(null);
 
-    // 开发环境加载 Vite 开发服务器
+    // F12 / Ctrl+Shift+I 打开 DevTools
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+        if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) {
+            mainWindow.webContents.toggleDevTools();
+        }
+    });
+
+    // 加载页面
     if (isDev) {
         mainWindow.loadURL('http://localhost:5173');
     } else {
-        // 生产环境加载打包后的静态文件（client/dist 由 extraResources 复制到 resources 目录）
-        mainWindow.loadFile(path.join(process.resourcesPath, 'client/dist/index.html'));
+        mainWindow.loadURL('app://./index.html');
     }
 
     mainWindow.on('closed', () => {
@@ -60,6 +90,16 @@ function createWindow() {
  */
 async function initializeApp() {
     try {
+        // 生产环境注册 app:// 协议的文件拦截器
+        if (!isDev) {
+            const frontendBase = getFrontendBasePath();
+            protocol.handle('app', (request) => {
+                const urlPath = new URL(request.url).pathname;
+                const filePath = path.join(frontendBase, urlPath);
+                return net.fetch('file://' + filePath);
+            });
+        }
+
         // 初始化数据库
         const dbPath = isDev
             ? path.join(__dirname, 'data/etf.db')
@@ -67,16 +107,14 @@ async function initializeApp() {
 
         db = new Database(dbPath);
         await db.initialize();
-        console.log('[DB] SQLite 数据库初始化成功');
 
         // 注册 IPC 处理器
         registerIpcHandlers(ipcMain, db);
-        console.log('[IPC] IPC 处理器注册成功');
 
         // 创建窗口
         createWindow();
     } catch (error) {
-        console.error('[App] 初始化失败:', error);
+        console.error('初始化失败:', error);
         app.quit();
     }
 }
@@ -84,7 +122,7 @@ async function initializeApp() {
 // 应用就绪
 app.whenReady().then(initializeApp);
 
-// 所有窗口关闭时退出（macOS 除外）
+// 所有窗口关闭时退出
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
         app.quit();

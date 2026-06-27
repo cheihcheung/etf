@@ -69,18 +69,19 @@ etf/
 │   ├── client/                # 前端 (Vue 3 + TS + Vite)，仅 IPC 通信
 │   │   └── src/
 │   │       ├── components/    # Layout 布局（桌面标签页风格）
-│   │       ├── router/        # 路由配置
+│   │       ├── router/        # 路由配置（Hash 模式，兼容 app:// 协议）
 │   │       ├── utils/         # electron-api.ts(纯 IPC)
 │   │       └── views/         # 4 个核心页面
-│   ├── models/                # SQLite 数据模型
-│   ├── services/              # 回测引擎
+│   ├── src/                   # 主进程业务代码
+│   │   ├── models/            # SQLite 数据模型
+│   │   ├── services/          # 回测引擎
+│   │   ├── database.js        # SQLite 封装
+│   │   ├── ipc-handlers.js    # IPC 处理器
+│   │   ├── spider.js          # 爬虫模块（desktop 独立版）
+│   │   └── utils.js           # 量化指标计算（desktop 独立版）
 │   ├── data/                  # SQLite 数据库（运行时生成）
 │   ├── main.js                # Electron 主进程入口
-│   ├── preload.js             # 预加载脚本
-│   ├── database.js            # SQLite 封装
-│   ├── ipc-handlers.js        # IPC 处理器
-│   ├── spider.js              # 爬虫模块（desktop 独立版）
-│   └── utils.js               # 量化指标计算（desktop 独立版）
+│   └── preload.js             # 预加载脚本
 ├── docs/                      # 详细文档
 │   └── database/              # 建表脚本
 ├── .gitignore
@@ -98,10 +99,10 @@ etf/
    │  (Vue3,纯HTTP)  (Express)         │  (Vue3,纯IPC)  (Electron)
    │                    │              │                   │     │
    │                    ▼              │                   ▼     │
-   │              spider.js            │             spider.js   │
-   │              helpers.js           │             utils.js    │
-   │              (web 独立)           │             (desktop 独立)
-   │                    │              │                   │     │
+   │              spider.js            │             src/        │
+   │              helpers.js           │           spider.js     │
+   │              (web 独立)           │           utils.js      │
+   │                    │              │         (desktop 独立)  │
    │                    ▼              │                   ▼     │
    │                  MySQL            │                SQLite   │
    └─────────────────────────┘         └─────────────────────────┘
@@ -154,7 +155,7 @@ etf/
 ### desktop IPC 三层
 
 ```
-渲染进程 (client/)  → IPC 通道 (preload)  → 主进程 (ipc-handlers.js)
+渲染进程 (client/)  → IPC 通道 (preload)  → 主进程 (src/ipc-handlers.js)
   Vue 3 页面请求       contextBridge 桥接     调用模型/服务，操作 SQLite
 ```
 
@@ -169,7 +170,7 @@ etf/
 | strategy_a_config | 策略 A 档位配置    |
 | strategy_b_config | 策略 B 档位配置    |
 
-> web 版用 MySQL（建表脚本见 `docs/database/init_tables.sql`），desktop 版用 SQLite（`database.js` 启动时自动建表）。
+> web 版用 MySQL（建表脚本见 `docs/database/init_tables.sql`），desktop 版用 SQLite（`src/database.js` 启动时自动建表）。
 
 ### 回测流程
 

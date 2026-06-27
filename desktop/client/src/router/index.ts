@@ -20,46 +20,46 @@
  *   title — 页面标题，显示在 Layout 顶部导航栏的 <h2> 中
  *   icon  — 图标名称（仅在路由定义中作为备注使用，侧边栏图标在 Layout 模板中硬编码）
  */
-import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import Layout from '../components/Layout.vue'
 
 const routes: RouteRecordRaw[] = [
-	{
-		path: '/',
-		component: Layout,
-		redirect: '/backtest',
-		children: [
-			{
-				path: 'backtest',
-				name: 'Backtest',
-				component: () => import('../views/Backtest.vue'),
-				meta: { title: '回测与参数寻优', icon: 'DataAnalysis' },
-			},
-			{
-				path: 'config',
-				name: 'Config',
-				component: () => import('../views/Config.vue'),
-				meta: { title: '股票管理', icon: 'Coin' },
-			},
-			{
-				path: 'strategy',
-				name: 'Strategy',
-				component: () => import('../views/Strategy.vue'),
-				meta: { title: '策略配置', icon: 'Setting' },
-			},
-			{
-				path: 'history',
-				name: 'History',
-				component: () => import('../views/History.vue'),
-				meta: { title: '历史走势', icon: 'TrendCharts' },
-			},
-		],
-	},
+    {
+        path: '/',
+        component: Layout,
+        redirect: '/backtest',
+        children: [
+            {
+                path: 'backtest',
+                name: 'Backtest',
+                component: () => import('../views/Backtest.vue'),
+                meta: { title: '回测与参数寻优', icon: 'DataAnalysis' },
+            },
+            {
+                path: 'config',
+                name: 'Config',
+                component: () => import('../views/Config.vue'),
+                meta: { title: '股票管理', icon: 'Coin' },
+            },
+            {
+                path: 'strategy',
+                name: 'Strategy',
+                component: () => import('../views/Strategy.vue'),
+                meta: { title: '策略配置', icon: 'Setting' },
+            },
+            {
+                path: 'history',
+                name: 'History',
+                component: () => import('../views/History.vue'),
+                meta: { title: '历史走势', icon: 'TrendCharts' },
+            },
+        ],
+    },
 ]
 
 const router = createRouter({
-	history: createWebHistory(),
-	routes,
+    history: createWebHashHistory(),  // Electron 环境使用 hash 路由，兼容 file:// 和 app:// 协议
+    routes,
 })
 
 export default router

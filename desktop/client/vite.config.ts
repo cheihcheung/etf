@@ -6,7 +6,7 @@ import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { resolve } from 'path'
 
 export default defineConfig({
-    base: './', // Electron 打包需要相对路径
+    base: './', // 生产环境通过 app:// 自定义协议加载，相对路径
     plugins: [
         vue(),
         AutoImport({
@@ -30,13 +30,5 @@ export default defineConfig({
     build: {
         outDir: 'dist',
         assetsDir: 'assets',
-        rollupOptions: {
-            output: {
-                manualChunks: {
-                    'element-plus': ['element-plus'],
-                    'echarts': ['echarts', 'vue-echarts'],
-                },
-            },
-        },
     },
 })
