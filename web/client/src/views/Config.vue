@@ -7,6 +7,7 @@
 						<el-button @click="showAddDialog" type="primary" :icon="Plus">添加股票</el-button>
 						<el-button @click="syncPrices" :icon="Refresh" :loading="syncing">同步行情</el-button>
 						<el-button @click="showSyncHistoryDialog" :icon="DataBoard" :loading="syncingHistory">同步历史数据</el-button>
+						<el-button @click="showImportXlsDialog" :icon="Upload" :loading="parsingXls">导入历史数据</el-button>
 					</div>
 				</div>
 			</template>
@@ -180,6 +181,57 @@
 				<el-button type="primary" @click="handleSyncHistory" :loading="syncingHistory">开始同步</el-button>
 			</template>
 		</el-dialog>
+
+		<!-- 导入历史数据弹窗 -->
+		<el-dialog v-model="importXlsDialogVisible" title="导入同花顺历史数据" width="500px">
+			<el-form label-width="110px">
+				<el-form-item label="选择文件">
+					<div style="display: flex; gap: 8px; width: 100%">
+						<el-input v-model="importXls.fileName" placeholder="请选择同花顺导出的 xls 文件" disabled />
+						<el-button type="primary" @click="handleSelectXlsFile" :loading="parsingXls">选择文件</el-button>
+					</div>
+				</el-form-item>
+				<el-form-item label="导入到股票">
+					<el-select v-model="importXls.etfCode" placeholder="选择要导入到的股票" style="width: 100%">
+						<el-option v-for="item in etfList" :key="item.code" :label="item.code + ' - ' + item.name" :value="item.code" />
+					</el-select>
+				</el-form-item>
+			</el-form>
+
+			<!-- 数据预览 -->
+			<div v-if="importXls.preview.length > 0" style="margin-bottom: 12px">
+				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px">
+					<span style="font-size: 13px; color: #606266">数据预览（共 {{ importXls.totalRows }} 行，显示前 {{ importXls.preview.length }} 行）</span>
+				</div>
+				<el-table :data="importXls.preview" border max-height="300" size="small">
+					<el-table-column prop="_index" label="#" width="50" align="center" />
+					<el-table-column prop="trade_date" label="日期" width="110" align="center" />
+					<el-table-column prop="open_price" label="开盘" width="100" align="right">
+						<template #default="{ row }">{{ row.open_price.toFixed(4) }}</template>
+					</el-table-column>
+					<el-table-column prop="close_price" label="收盘" width="100" align="right">
+						<template #default="{ row }">{{ row.close_price.toFixed(4) }}</template>
+					</el-table-column>
+					<el-table-column prop="high_price" label="最高" width="100" align="right">
+						<template #default="{ row }">{{ row.high_price.toFixed(4) }}</template>
+					</el-table-column>
+					<el-table-column prop="low_price" label="最低" width="100" align="right">
+						<template #default="{ row }">{{ row.low_price.toFixed(4) }}</template>
+					</el-table-column>
+					<el-table-column prop="volume" label="成交量" width="110" align="right">
+						<template #default="{ row }">{{ row.volume.toLocaleString() }}</template>
+					</el-table-column>
+					<el-table-column prop="change_pct" label="涨跌幅%" width="100" align="right">
+						<template #default="{ row }">{{ row.change_pct.toFixed(2) }}%</template>
+					</el-table-column>
+				</el-table>
+			</div>
+
+			<template #footer>
+				<el-button @click="importXlsDialogVisible = false">取消</el-button>
+				<el-button type="primary" @click="handleImportXls" :loading="importingXls" :disabled="!importXls.etfCode || importXls.preview.length === 0">开始导入</el-button>
+			</template>
+		</el-dialog>
 	</div>
 </template>
 
@@ -210,8 +262,8 @@
  */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus, Refresh, DataBoard } from '@element-plus/icons-vue'
-import { etfApi, configApi } from '../api'
+import { Plus, Refresh, DataBoard, Upload } from '@element-plus/icons-vue'
+import { etfApi, configApi, importXlsApi } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate, formatDateTime } from '@/utils'
 
@@ -231,6 +283,84 @@ const syncForm = ref({
 	dataSource: 'merge',
 })
 const formRef = ref<any>(null)
+
+// ==================== XLS 导入 ====================
+const importXlsDialogVisible = ref(false)
+const parsingXls = ref(false)
+const importingXls = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
+const importXls = ref({
+	fileName: '',
+	filePath: '',
+	etfCode: '',
+	totalRows: 0,
+	preview: [] as any[],
+})
+
+const showImportXlsDialog = () => {
+	importXls.value = { fileName: '', filePath: '', etfCode: '', totalRows: 0, preview: [] }
+	importXlsDialogVisible.value = true
+}
+
+const handleSelectXlsFile = () => {
+	// 创建隐藏的 file input
+	if (!fileInput.value) {
+		const input = document.createElement('input')
+		input.type = 'file'
+		input.accept = '.xls,.xlsx'
+		input.style.display = 'none'
+		input.addEventListener('change', async (e: any) => {
+			const file = e.target?.files?.[0]
+			if (!file) return
+			await uploadAndPreview(file)
+		})
+		document.body.appendChild(input)
+		fileInput.value = input
+	}
+	fileInput.value.click()
+}
+
+const uploadAndPreview = async (file: File) => {
+	parsingXls.value = true
+	try {
+		const res: any = await importXlsApi.preview(file)
+		if (!res.success) {
+			ElMessage.error(res.message || '解析文件失败')
+			return
+		}
+		importXls.value.fileName = res.data.fileName
+		importXls.value.filePath = res.data.filePath
+		importXls.value.totalRows = res.data.totalRows
+		importXls.value.preview = res.data.preview
+		ElMessage.success(`文件解析成功，共 ${res.data.totalRows} 条数据`)
+	} catch (e: any) {
+		ElMessage.error('解析文件失败: ' + e.message)
+	} finally {
+		parsingXls.value = false
+	}
+}
+
+const handleImportXls = async () => {
+	if (!importXls.value.etfCode || !importXls.value.filePath) {
+		ElMessage.warning('请选择文件和目标股票')
+		return
+	}
+	importingXls.value = true
+	try {
+		const res: any = await importXlsApi.save(importXls.value.etfCode, importXls.value.filePath)
+		if (!res.success) {
+			ElMessage.error(res.message || '导入失败')
+			return
+		}
+		ElMessage.success(res.message)
+		importXlsDialogVisible.value = false
+		await loadEtfs()
+	} catch (e: any) {
+		ElMessage.error('导入失败: ' + e.message)
+	} finally {
+		importingXls.value = false
+	}
+}
 
 const etfForm = ref({ code: '', name: '', assetType: '', annualReturn: null, scaleFactor: 1, isBenchmark: false })
 

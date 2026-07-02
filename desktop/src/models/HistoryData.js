@@ -69,6 +69,23 @@ class HistoryDataModel {
         return this.db.execute(sql, params);
     }
 
+    async deleteWhere(where, params = []) {
+        let sql = `DELETE FROM ${this.tableName}`;
+        let actualParams = [];
+
+        if (typeof where === 'object' && where !== null) {
+            const keys = Object.keys(where);
+            const whereClause = keys.map(k => `${k} = ?`).join(' AND ');
+            sql += ` WHERE ${whereClause}`;
+            actualParams = keys.map(k => where[k]);
+        } else if (typeof where === 'string' && where.trim() !== '') {
+            sql += ` WHERE ${where}`;
+            actualParams = params;
+        }
+
+        return this.db.execute(sql, actualParams);
+    }
+
     async getHistoryByRange(etfCode, startDate, endDate) {
         const sql = `
             SELECT * FROM ${this.tableName}

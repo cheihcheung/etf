@@ -59,6 +59,23 @@ class TradeRecordModel {
             trigger_detail: tradeData.triggerDetail ? JSON.stringify(tradeData.triggerDetail) : null
         });
     }
+
+    async deleteWhere(where, params = []) {
+        let sql = `DELETE FROM ${this.tableName}`;
+        let actualParams = [];
+
+        if (typeof where === 'object' && where !== null) {
+            const keys = Object.keys(where);
+            const whereClause = keys.map(k => `${k} = ?`).join(' AND ');
+            sql += ` WHERE ${whereClause}`;
+            actualParams = keys.map(k => where[k]);
+        } else if (typeof where === 'string' && where.trim() !== '') {
+            sql += ` WHERE ${where}`;
+            actualParams = params;
+        }
+
+        return this.db.execute(sql, actualParams);
+    }
 }
 
 module.exports = TradeRecordModel;

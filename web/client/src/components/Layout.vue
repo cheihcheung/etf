@@ -2,7 +2,7 @@
 	<el-container style="height: 100vh">
 		<el-aside :width="isCollapse ? '64px' : '180px'" class="app-sidebar">
 			<div class="sidebar-header">
-				<span v-if="!isCollapse" class="sidebar-title">股票策略系统</span>
+				<span v-if="!isCollapse" class="sidebar-title">股票策略回测系统</span>
 				<span v-else class="sidebar-title-short">ETF</span>
 			</div>
 			<el-menu :default-active="route.path" :collapse="isCollapse" :collapse-transition="false" background-color="#1d1e1f" text-color="#bfcbd9" active-text-color="#409eff" @select="handleMenuSelect">
@@ -77,7 +77,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Coin, Setting, DataAnalysis, Refresh } from '@element-plus/icons-vue'
-import { healthCheck } from '@/utils/electron-api'
+import { healthCheck } from '@/api'
 
 const route = useRoute()
 const router = useRouter()

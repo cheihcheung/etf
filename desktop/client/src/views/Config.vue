@@ -7,6 +7,7 @@
 						<el-button @click="showAddDialog" type="primary" :icon="Plus">添加股票</el-button>
 						<el-button @click="syncPrices" :icon="Refresh" :loading="syncing">同步行情</el-button>
 						<el-button @click="showSyncHistoryDialog" :icon="DataBoard" :loading="syncingHistory">同步历史数据</el-button>
+						<el-button @click="showImportXlsDialog" :icon="Upload" :loading="importingXls">导入历史数据</el-button>
 					</div>
 				</div>
 			</template>
@@ -127,7 +128,7 @@
 					<el-input v-model="etfForm.code" placeholder="如: 510300" :disabled="isEditing" />
 				</el-form-item>
 				<el-form-item label="股票名称" prop="name">
-					<el-input v-model="etfForm.name" placeholder="如: 沪深300ETF" />
+					<el-input v-model="etfForm.name" placeholder="如: 510300" />
 				</el-form-item>
 				<el-form-item label="资产类型" prop="assetType">
 					<el-select v-model="etfForm.assetType" placeholder="选择资产类型" style="width: 100%">
@@ -180,6 +181,58 @@
 				<el-button type="primary" @click="handleSyncHistory" :loading="syncingHistory">开始同步</el-button>
 			</template>
 		</el-dialog>
+
+		<!-- 导入历史数据弹窗 -->
+		<el-dialog v-model="importXlsDialogVisible" title="导入同花顺历史数据" width="500px">
+			<el-form label-width="110px">
+				<el-form-item label="选择文件">
+					<div style="display: flex; gap: 8px; width: 100%">
+						<el-input v-model="importXls.filePath" placeholder="请选择同花顺导出的 xls 文件" disabled />
+						<el-button type="primary" @click="handleSelectXlsFile" :loading="parsingXls">选择文件</el-button>
+					</div>
+					<div v-if="importXls.fileName" style="margin-top: 4px; font-size: 12px; color: #909399">已选择: {{ importXls.fileName }}</div>
+				</el-form-item>
+				<el-form-item label="导入到股票">
+					<el-select v-model="importXls.etfCode" placeholder="选择要导入到的股票" style="width: 100%">
+						<el-option v-for="item in etfList" :key="item.code" :label="item.code + ' - ' + item.name" :value="item.code" />
+					</el-select>
+				</el-form-item>
+			</el-form>
+
+			<!-- 数据预览 -->
+			<div v-if="importXls.preview.length > 0" style="margin-bottom: 12px">
+				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px">
+					<span style="font-size: 13px; color: #606266">数据预览（共 {{ importXls.totalRows }} 行，显示前 {{ importXls.preview.length }} 行）</span>
+				</div>
+				<el-table :data="importXls.preview" border max-height="300" size="small">
+					<el-table-column prop="_index" label="#" width="50" align="center" />
+					<el-table-column prop="trade_date" label="日期" width="110" align="center" />
+					<el-table-column prop="open_price" label="开盘" width="100" align="right">
+						<template #default="{ row }">{{ row.open_price.toFixed(4) }}</template>
+					</el-table-column>
+					<el-table-column prop="close_price" label="收盘" width="100" align="right">
+						<template #default="{ row }">{{ row.close_price.toFixed(4) }}</template>
+					</el-table-column>
+					<el-table-column prop="high_price" label="最高" width="100" align="right">
+						<template #default="{ row }">{{ row.high_price.toFixed(4) }}</template>
+					</el-table-column>
+					<el-table-column prop="low_price" label="最低" width="100" align="right">
+						<template #default="{ row }">{{ row.low_price.toFixed(4) }}</template>
+					</el-table-column>
+					<el-table-column prop="volume" label="成交量" width="110" align="right">
+						<template #default="{ row }">{{ row.volume.toLocaleString() }}</template>
+					</el-table-column>
+					<el-table-column prop="change_pct" label="涨跌幅%" width="100" align="right">
+						<template #default="{ row }">{{ row.change_pct.toFixed(2) }}%</template>
+					</el-table-column>
+				</el-table>
+			</div>
+
+			<template #footer>
+				<el-button @click="importXlsDialogVisible = false">取消</el-button>
+				<el-button type="primary" @click="handleImportXls" :loading="importingXls" :disabled="!importXls.etfCode || importXls.preview.length === 0">开始导入</el-button>
+			</template>
+		</el-dialog>
 	</div>
 </template>
 
@@ -193,7 +246,8 @@
  *   1. 股票标的管理（CRUD）：添加/编辑/删除，查看代码、名称、资产类型、当前价格、涨跌幅等
  *   2. 同步行情：一键从腾讯接口拉取所有股票的最新价格
  *   3. 同步历史数据：选择日期区间和标的，从腾讯接口批量拉取历史日线数据
- *   4. 初始比例配置：为每个标的设置初始配比、步长比例、是否启用
+ *   4. 导入历史数据：从同花顺导出的 xls 文件导入历史 K 线数据
+ *   5. 初始比例配置：为每个标的设置初始配比、步长比例、是否启用
  *      — 总占比不能超过 100%，超过时保存按钮禁用并显示红色警告
  *      — "补满"按钮：将当前标的的配比设为剩余额度，快速凑满 100%
  *      — 禁用某标的时，其配比自动归零，且回测时不纳入组合
@@ -208,10 +262,10 @@
  *   将差额加到当前行的 ratio 上（前提是当前总占比 < 100% 且标的已启用）。
  *   例如当前总和 85%，点击某标的的"补满"→ 该 ratio += 15%
  */
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus, Refresh, DataBoard } from '@element-plus/icons-vue'
-import { etfApi, configApi } from '../api'
+import { Plus, Refresh, DataBoard, Upload } from '@element-plus/icons-vue'
+import { etfApi, configApi, importXlsApi } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate, formatDateTime } from '@/utils'
 
@@ -367,6 +421,78 @@ const goToHistory = (row: any) => {
 		path: '/history',
 		query: { code: row.code, name: row.name },
 	})
+}
+
+// ============ XLS 历史数据导入 ============
+const importXlsDialogVisible = ref(false)
+const parsingXls = ref(false)
+const importingXls = ref(false)
+
+const importXls = reactive({
+	filePath: '',
+	fileName: '',
+	etfCode: '',
+	totalRows: 0,
+	preview: [] as any[],
+})
+
+const showImportXlsDialog = () => {
+	importXls.filePath = ''
+	importXls.fileName = ''
+	importXls.etfCode = ''
+	importXls.totalRows = 0
+	importXls.preview = []
+	importXlsDialogVisible.value = true
+}
+
+const handleSelectXlsFile = async () => {
+	parsingXls.value = true
+	try {
+		const res: any = await importXlsApi.preview()
+		if (res.canceled) return
+		if (!res.success) {
+			ElMessage.error(res.message || '解析文件失败')
+			return
+		}
+		importXls.filePath = res.data.filePath
+		importXls.fileName = res.data.filePath.split(/[\\/]/).pop()
+		importXls.totalRows = res.data.totalRows
+		importXls.preview = res.data.preview
+		ElMessage.success(`解析完成，共 ${res.data.totalRows} 条数据`)
+	} catch (e: any) {
+		ElMessage.error('选择文件失败: ' + e.message)
+	} finally {
+		parsingXls.value = false
+	}
+}
+
+const handleImportXls = async () => {
+	if (!importXls.etfCode) {
+		ElMessage.warning('请选择要导入到的股票')
+		return
+	}
+	if (importXls.preview.length === 0) {
+		ElMessage.warning('请先选择文件')
+		return
+	}
+	importingXls.value = true
+	try {
+		const res: any = await importXlsApi.save({
+			etfCode: importXls.etfCode,
+			filePath: importXls.filePath,
+		})
+		if (res.success) {
+			ElMessage.success(res.message || '导入完成')
+			importXlsDialogVisible.value = false
+			await loadEtfs()
+		} else {
+			ElMessage.error(res.message || '导入失败')
+		}
+	} catch (e: any) {
+		ElMessage.error('导入失败: ' + e.message)
+	} finally {
+		importingXls.value = false
+	}
 }
 
 const assetTypeTag = (type: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' | undefined => {

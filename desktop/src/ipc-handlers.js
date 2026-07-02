@@ -52,12 +52,12 @@ function registerIpcHandlers(ipcMain, db) {
         try {
             const { code, name, assetType, annualReturn, scaleFactor, isBenchmark } = data;
             if (!code || !name || !assetType) {
-                return { success: false, message: '请填写完整的ETF信息' };
+                return { success: false, message: '请填写完整的股票信息' };
             }
 
             const existing = await Stock.findOne({ code });
             if (existing) {
-                return { success: false, message: '该ETF已存在' };
+                return { success: false, message: '该股票已存在' };
             }
 
             if (isBenchmark === 1) {
@@ -121,12 +121,18 @@ function registerIpcHandlers(ipcMain, db) {
                     .reduce((sum, e) => sum + parseFloat(e.initial_ratio || 0), 0);
 
                 if (Math.abs(otherTotal - 100) > 0.01 && otherTotal > 0) {
-                    return { success: false, message: '删除该ETF会导致其他ETF总占比不为100%，请先调整比例' };
+                    return { success: false, message: '删除该股票会导致其他股票总占比不为100%，请先调整比例' };
                 }
             }
 
+            // 级联删除关联数据
+            const HistoryData = new HistoryDataModel(db);
+            const TradeRecord = new TradeRecordModel(db);
+            await HistoryData.deleteWhere({ etf_code: code });
+            await TradeRecord.deleteWhere({ etf_code: code });
             await Stock.deleteWhere({ code });
-            return { success: true, message: '删除成功' };
+
+            return { success: true, message: '删除成功（含历史行情和交易记录）' };
         } catch (error) {
             return { success: false, message: getErrorMessage(error) };
         }
@@ -163,7 +169,7 @@ function registerIpcHandlers(ipcMain, db) {
         try {
             const etfs = await Stock.findAll();
             if (etfs.length === 0) {
-                return { success: false, message: '未找到ETF数据，请先添加ETF' };
+                return { success: false, message: '未找到股票数据，请先添加股票' };
             }
             let successCount = 0;
             let historySyncedCount = 0;
@@ -227,7 +233,7 @@ function registerIpcHandlers(ipcMain, db) {
                 }
             }
 
-            return { success: true, message: `同步完成：${successCount}只ETF实时价格已更新，自动补全了${historySyncedCount}条历史数据` };
+            return { success: true, message: `同步完成：${successCount}只股票实时价格已更新，自动补全了${historySyncedCount}条历史数据` };
         } catch (error) {
             return { success: false, message: getErrorMessage(error) };
         }
@@ -249,7 +255,7 @@ function registerIpcHandlers(ipcMain, db) {
             }
 
             if (etfs.length === 0) {
-                return { success: false, message: '未找到匹配的ETF数据，请先添加ETF' };
+                return { success: false, message: '未找到匹配的股票数据，请先添加股票' };
             }
 
             let totalCount = 0;
@@ -378,7 +384,7 @@ function registerIpcHandlers(ipcMain, db) {
     ipcMain.handle('config:update-initial-ratios', async (event, ratios) => {
         try {
             if (!ratios || ratios.length === 0) {
-                return { success: false, message: '请配置ETF比例' };
+                return { success: false, message: '请配置股票比例' };
             }
 
             const activeTotal = ratios
@@ -664,6 +670,124 @@ function registerIpcHandlers(ipcMain, db) {
     // ==================== 健康检查 ====================
     ipcMain.handle('health', async () => {
         return { status: 'ok', time: new Date().toISOString() };
+    });
+
+    // ==================== XLS 历史数据导入 ====================
+
+    /**
+     * 解析同花顺导出的 xls 数据行
+     * 使用 header:1 原始数组格式，按位置索引解析（兼容编码导致的中文列名乱码问题）
+     * 同花顺标准列顺序: 时间,名称,开盘,收盘,最高,最低,涨跌,涨跌幅%,振幅%,成交量(手),成交额(元)
+     */
+    function parseXlsRows(filePath) {
+        const XLSX = require('xlsx');
+        const workbook = XLSX.readFile(filePath);
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+
+        // 跳过标题行，从第2行开始（索引1）
+        const dataRows = rawRows.slice(1).filter(row => {
+            const dateVal = row[0];
+            const closeVal = row[4] !== null && row[4] !== undefined && row[4] !== '';
+            return dateVal && closeVal;
+        });
+
+        return dataRows.map((row, idx) => {
+            // 列位置：0=时间, 1=开盘, 2=最高, 3=最低, 4=收盘, 5=涨跌, 6=涨跌幅%, 7=振幅%, 8=成交量, 9=成交额
+            let dateVal = row[0] ? String(row[0]).trim() : '';
+            // 清理日期格式，"2005-01-04,二" → "2005-01-04"
+            dateVal = dateVal.replace(/,.*$/, '');
+            // Excel 日期序列号处理
+            if (/^\d+$/.test(dateVal) && parseInt(dateVal) > 40000) {
+                const d = new Date((parseInt(dateVal) - 25569) * 86400 * 1000);
+                dateVal = d.toISOString().slice(0, 10);
+            }
+
+            return {
+                _index: idx + 1,
+                trade_date: dateVal,
+                open_price: parseFloat(row[1]) || 0,
+                close_price: parseFloat(row[4]) || 0,
+                high_price: parseFloat(row[2]) || 0,
+                low_price: parseFloat(row[3]) || 0,
+                change_pct: parseFloat(row[6]) || 0,
+                volume: parseInt(String(row[8] || '0').replace(/[,，]/g, '')) || 0
+            };
+        });
+    }
+
+    // 选择并解析 xls 文件，返回预览数据
+    ipcMain.handle('import:xls-preview', async () => {
+        const { dialog } = require('electron');
+        try {
+            const result = await dialog.showOpenDialog({
+                properties: ['openFile'],
+                filters: [{ name: 'Excel 文件', extensions: ['xls', 'xlsx'] }]
+            });
+
+            if (result.canceled || result.filePaths.length === 0) {
+                return { success: false, canceled: true };
+            }
+
+            const filePath = result.filePaths[0];
+            const preview = parseXlsRows(filePath);
+
+            return {
+                success: true,
+                data: {
+                    filePath,
+                    totalRows: preview.length,
+                    preview: preview.slice(0, 20)
+                }
+            };
+        } catch (error) {
+            return { success: false, message: '解析文件失败: ' + getErrorMessage(error) };
+        }
+    });
+
+    // 保存解析后的 xls 数据到数据库
+    ipcMain.handle('import:xls-save', async (event, { etfCode, filePath }) => {
+        const HistoryData = new HistoryDataModel(db);
+        try {
+            const dataRows = parseXlsRows(filePath);
+
+            let insertCount = 0;
+            let updateCount = 0;
+
+            for (const row of dataRows) {
+                if (!row.trade_date || row.close_price <= 0) continue;
+
+                const existing = await HistoryData.findOne({ etf_code: etfCode, trade_date: row.trade_date });
+
+                if (existing) {
+                    await HistoryData.update(existing.id, {
+                        open_price: row.open_price,
+                        close_price: row.close_price,
+                        high_price: row.high_price,
+                        low_price: row.low_price,
+                        volume: row.volume,
+                        change_pct: row.change_pct
+                    });
+                    updateCount++;
+                } else {
+                    await HistoryData.create({
+                        etf_code: etfCode,
+                        trade_date: row.trade_date,
+                        open_price: row.open_price,
+                        close_price: row.close_price,
+                        high_price: row.high_price,
+                        low_price: row.low_price,
+                        volume: row.volume,
+                        change_pct: row.change_pct
+                    });
+                    insertCount++;
+                }
+            }
+
+            return { success: true, message: `导入完成：新增 ${insertCount} 条，更新 ${updateCount} 条`, data: { insertCount, updateCount } };
+        } catch (error) {
+            return { success: false, message: '导入失败: ' + getErrorMessage(error) };
+        }
     });
 }
 

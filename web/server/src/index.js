@@ -1,6 +1,6 @@
 /**
  * ==========================================================================================
- * ETF 多资产动态配置策略系统 —— 后端 Express 应用入口
+ * 多资产策略回测系统 —— 后端 Express 应用入口
  * ==========================================================================================
  * 职责：
  *   1. 创建 Express 应用，配置 CORS、JSON 解析、路由挂载
@@ -26,6 +26,7 @@ const configRoutes = require("./routes/config");
 const etfRoutes = require("./routes/etf");
 const backtestRoutes = require("./routes/backtest");
 const recordsRoutes = require("./routes/records");
+const importRoutes = require("./routes/import");
 
 const app = express();
 const PORT = parseInt(process.env.SERVER_PORT) || 3001;
@@ -47,6 +48,7 @@ app.use("/api/config", configRoutes);
 app.use("/api/etf", etfRoutes);
 app.use("/api/backtest", backtestRoutes);
 app.use("/api/records", recordsRoutes);
+app.use("/api/import", importRoutes);
 
 // 健康检查接口(前端 Layout 组件定时调用)
 app.get("/api/health", (req, res) => {

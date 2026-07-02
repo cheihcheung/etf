@@ -1,31 +1,43 @@
 <template>
 	<div class="desktop-app">
-		<!-- 顶部标题栏（桌面应用风格） -->
+		<!-- 顶部标题栏（桌面应用风格，无边框窗口） -->
 		<header class="title-bar">
 			<div class="title-left">
 				<el-icon class="app-logo"><DataAnalysis /></el-icon>
-				<span class="app-name">ETF 策略系统</span>
+				<span class="app-name">股票策略回测系统</span>
 			</div>
 			<div class="title-right">
-				<el-tag v-if="healthStatus" type="success" effect="dark" size="small" round>运行中</el-tag>
-				<el-tag v-else type="danger" effect="dark" size="small" round>未连接</el-tag>
-				<el-button text size="small" @click="refreshData">
-					<el-icon><Refresh /></el-icon>
-				</el-button>
+				<!-- 窗口控制按钮 -->
+				<div class="window-controls">
+					<button class="control-btn" @click="minimizeWindow" title="最小化">
+						<el-icon :size="14"><Minus /></el-icon>
+					</button>
+					<button class="control-btn" @click="toggleMaximize" :title="isMaximized ? '还原' : '最大化'">
+						<el-icon :size="14">
+							<FullScreen v-if="!isMaximized" />
+							<CopyDocument v-else />
+						</el-icon>
+					</button>
+					<button class="control-btn close-btn" @click="closeWindow" title="关闭">
+						<el-icon :size="14"><Close /></el-icon>
+					</button>
+				</div>
 			</div>
 		</header>
 
 		<!-- 标签页导航栏（桌面风格，类似浏览器/VS Code 标签页） -->
 		<nav class="tab-bar">
-			<div
-				v-for="tab in tabs"
-				:key="tab.path"
-				class="tab-item"
-				:class="{ active: route.path === tab.path }"
-				@click="switchTab(tab.path)"
-			>
+			<div v-for="tab in tabs" :key="tab.path" class="tab-item" :class="{ active: route.path === tab.path }" @click="switchTab(tab.path)">
 				<el-icon class="tab-icon"><component :is="tab.icon" /></el-icon>
 				<span class="tab-label">{{ tab.label }}</span>
+			</div>
+			<!-- 健康状态 + 刷新（紧跟在标签页右侧） -->
+			<div class="tab-bar-right">
+				<el-tag v-if="healthStatus" type="success" effect="dark" size="small" round>运行中</el-tag>
+				<el-tag v-else type="danger" effect="dark" size="small" round>未连接</el-tag>
+				<el-button text size="small" @click="refreshData" class="refresh-btn" title="刷新连接状态">
+					<el-icon class="refresh-icon"><Refresh /></el-icon>
+				</el-button>
 			</div>
 		</nav>
 
@@ -51,7 +63,7 @@
  */
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { DataAnalysis, Refresh, Coin, Setting, TrendCharts } from '@element-plus/icons-vue'
+import { DataAnalysis, Refresh, Coin, Setting, TrendCharts, Minus, FullScreen, CopyDocument, Close } from '@element-plus/icons-vue'
 import { healthCheck } from '@/utils/electron-api'
 
 const route = useRoute()
@@ -67,6 +79,9 @@ const tabs = [
 
 /** 后端健康检查状态（true=连接正常） */
 const healthStatus = ref(false)
+
+/** 窗口最大化状态 */
+const isMaximized = ref(false)
 
 /** 切换标签页 */
 const switchTab = (path: string) => {
@@ -87,8 +102,30 @@ const refreshData = () => {
 	checkHealth()
 }
 
+/** 窗口控制函数 */
+const minimizeWindow = () => {
+	;(window as any).electronAPI?.window?.minimize()
+}
+
+const toggleMaximize = async () => {
+	await (window as any).electronAPI?.window?.toggleMaximize()
+	isMaximized.value = await (window as any).electronAPI?.window?.isMaximized()
+}
+
+const closeWindow = () => {
+	;(window as any).electronAPI?.window?.close()
+}
+
+/** 获取窗口最大化状态 */
+const getWindowMaximizedState = async () => {
+	if ((window as any).electronAPI?.window?.isMaximized) {
+		isMaximized.value = await (window as any).electronAPI.window.isMaximized()
+	}
+}
+
 onMounted(() => {
 	checkHealth()
+	getWindowMaximizedState()
 })
 </script>
 
@@ -100,7 +137,7 @@ onMounted(() => {
 	background: #f0f2f5;
 }
 
-/* ============ 顶部标题栏 ============ */
+/* ============ 顶部标题栏（可拖拽） ============ */
 .title-bar {
 	height: 44px;
 	background: #1d2129;
@@ -109,12 +146,14 @@ onMounted(() => {
 	justify-content: space-between;
 	padding: 0 16px;
 	flex-shrink: 0;
+	-webkit-app-region: drag; /* 整个标题栏可拖拽移动窗口 */
 }
 
 .title-left {
 	display: flex;
 	align-items: center;
 	gap: 8px;
+	-webkit-app-region: drag;
 }
 
 .app-logo {
@@ -133,9 +172,41 @@ onMounted(() => {
 	display: flex;
 	align-items: center;
 	gap: 10px;
+	-webkit-app-region: no-drag; /* 右侧按钮区域不可拖拽 */
 }
 
-/* ============ 标签页导航栏 ============ */
+/* ============ 窗口控制按钮 ============ */
+.window-controls {
+	display: flex;
+	gap: 4px;
+	margin-left: 8px;
+}
+
+.control-btn {
+	width: 32px;
+	height: 32px;
+	border: none;
+	color: rgba(255, 255, 255, 0.8);
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 6px;
+	transition: all 0.2s ease;
+	background: transparent;
+}
+
+.control-btn:hover {
+	background: rgba(255, 255, 255, 0.1);
+	color: #fff;
+}
+
+.close-btn:hover {
+	background: #ff5f57 !important;
+	color: white !important;
+}
+
+/* ============ 标签页导航栏（不可拖拽） ============ */
 .tab-bar {
 	height: 38px;
 	background: #ffffff;
@@ -144,6 +215,42 @@ onMounted(() => {
 	align-items: stretch;
 	padding: 0 8px;
 	flex-shrink: 0;
+	-webkit-app-region: no-drag; /* 标签栏不可拖拽 */
+}
+
+.tab-bar-right {
+	display: flex;
+	align-items: center;
+	margin-left: auto; /* 推到最右侧 */
+	gap: 6px;
+	padding-right: 4px;
+}
+
+.refresh-btn {
+	height: 24px;
+	width: 24px;
+	padding: 0;
+	border-radius: 12px;
+	color: #fff;
+	background: #409eff;
+	border: none;
+	transition: all 0.2s;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.refresh-btn:hover {
+	background: #409eff !important;
+	color: #fff;
+}
+
+.refresh-btn:hover .refresh-icon {
+	transform: rotate(60deg);
+}
+
+.refresh-icon {
+	transition: transform 0.3s ease;
 }
 
 .tab-item {
@@ -156,7 +263,9 @@ onMounted(() => {
 	font-size: 13px;
 	border-right: 1px solid #f0f2f5;
 	position: relative;
-	transition: background 0.15s, color 0.15s;
+	transition:
+		background 0.15s,
+		color 0.15s;
 	user-select: none;
 }
 
@@ -188,10 +297,11 @@ onMounted(() => {
 	white-space: nowrap;
 }
 
-/* ============ 主内容区 ============ */
+/* ============ 主内容区（不可拖拽） ============ */
 .content-area {
 	flex: 1;
 	overflow-y: auto;
 	padding: 12px;
+	-webkit-app-region: no-drag; /* 内容区不可拖拽，所有功能可正常点击 */
 }
 </style>

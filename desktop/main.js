@@ -1,6 +1,6 @@
 /**
  * ==========================================================================================
- * ETF 多资产动态配置策略系统 —— Electron 主进程入口
+ * 多资产策略回测系统 —— Electron 主进程入口
  * ==========================================================================================
  * 职责：
  *   1. 创建应用窗口，加载前端页面
@@ -54,13 +54,14 @@ function createWindow() {
         height: 900,
         minWidth: 1200,
         minHeight: 700,
+        frame: false, // 无边框窗口，自定义标题栏
         autoHideMenuBar: true,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
             preload: path.join(__dirname, 'preload.js')
         },
-        title: 'ETF策略系统'
+        title: '股票策略回测系统'
     });
 
     // 移除应用菜单
@@ -110,6 +111,18 @@ async function initializeApp() {
 
         // 注册 IPC 处理器
         registerIpcHandlers(ipcMain, db);
+
+        // 注册窗口控制 IPC 处理器
+        ipcMain.handle('window:minimize', () => mainWindow?.minimize());
+        ipcMain.handle('window:toggleMaximize', () => {
+            if (mainWindow?.isMaximized()) {
+                mainWindow.unmaximize();
+            } else {
+                mainWindow.maximize();
+            }
+        });
+        ipcMain.handle('window:close', () => mainWindow?.close());
+        ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() || false);
 
         // 创建窗口
         createWindow();

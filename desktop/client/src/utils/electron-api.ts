@@ -123,7 +123,7 @@ export const configApi = {
     getEtfTypes: async () => {
         const res = await (window as any).electronAPI.config.getEtfTypes()
         if (res.success) return { data: res.data }
-        throw new Error(res.message || '获取ETF类型失败')
+        throw new Error(res.message || '获取股票类型失败')
     }
 }
 
@@ -169,9 +169,19 @@ export const recordsApi = {
     }
 }
 
+// ==================== XLS 历史数据导入 ====================
+export const importXlsApi = {
+    preview: async () => {
+        return await (window as any).electronAPI.importXls.preview()
+    },
+    save: async (params: any) => {
+        return await (window as any).electronAPI.importXls.save(toPlain(params))
+    }
+}
+
 // ==================== 系统健康检查 ====================
 export const healthCheck = async () => {
     return await (window as any).electronAPI.health()
 }
 
-export default { etfApi, configApi, backtestApi, recordsApi, healthCheck }
+export default { etfApi, configApi, backtestApi, recordsApi, importXlsApi, healthCheck }

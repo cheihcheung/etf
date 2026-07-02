@@ -65,6 +65,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
         market: () => ipcRenderer.invoke('records:market')
     },
 
+    // 窗口控制接口（无边框窗口）
+    window: {
+        minimize: () => ipcRenderer.invoke('window:minimize'),
+        toggleMaximize: () => ipcRenderer.invoke('window:toggleMaximize'),
+        close: () => ipcRenderer.invoke('window:close'),
+        isMaximized: () => ipcRenderer.invoke('window:isMaximized')
+    },
+
+    // 导入 xls 历史数据
+    importXls: {
+        preview: () => ipcRenderer.invoke('import:xls-preview'),
+        save: (params) => ipcRenderer.invoke('import:xls-save', toPlain(params))
+    },
+
     // 健康检查
     health: () => ipcRenderer.invoke('health')
 });

@@ -100,9 +100,9 @@
 					<el-col :span="16">
 						<el-form-item label="策略组合">
 							<el-checkbox-group v-model="strategyToggles">
-								<el-checkbox-button label="rebalance">再平衡</el-checkbox-button>
-								<el-checkbox-button label="strategyA">策略A</el-checkbox-button>
-								<el-checkbox-button label="strategyB">策略B</el-checkbox-button>
+								<el-checkbox-button value="rebalance">再平衡</el-checkbox-button>
+								<el-checkbox-button value="strategyA">策略A</el-checkbox-button>
+								<el-checkbox-button value="strategyB">策略B</el-checkbox-button>
 							</el-checkbox-group>
 						</el-form-item>
 					</el-col>
@@ -134,7 +134,7 @@
 							<span class="result-cell etf-single">{{ row.etfs[code] }}{{ row.unit }}</span>
 						</template>
 					</el-table-column>
-					<el-table-column v-if="result?.benchmarkMetrics" :label="(result?.benchmarkMetrics?.name || '对比基准')" align="center" min-width="120">
+					<el-table-column v-if="result?.benchmarkMetrics" :label="result?.benchmarkMetrics?.name || '对比基准'" align="center" min-width="120">
 						<template #default="{ row }">
 							<span class="result-cell benchmark">{{ row.benchmark }}{{ row.unit }}</span>
 						</template>
@@ -240,7 +240,11 @@
 			</template>
 			<div v-if="optimizationResult.bestParams" style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px">
 				<el-alert title="最优参数" type="success" show-icon :description="bestParamsDesc" style="flex: 1; margin-bottom: 0" />
-				<el-button type="success" @click="applyBestParams" style="white-space: nowrap; height: 60px">一键应用<br>最优参数</el-button>
+				<el-button type="success" @click="applyBestParams" style="white-space: nowrap; height: 60px">
+					一键应用
+					<br />
+					最优参数
+				</el-button>
 			</div>
 			<el-table :data="optimizationResult.sortedResults" stripe border max-height="500">
 				<el-table-column type="index" label="排名" width="60" align="center" />
@@ -310,9 +314,9 @@
 					</template>
 					<div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
 						<el-input-number v-model="optimRebMin" :min="0.5" :max="20" :step="0.5" :precision="1" style="width: 110px" placeholder="最小" />
-						<span style="color:#909399">~</span>
+						<span style="color: #909399">~</span>
 						<el-input-number v-model="optimRebMax" :min="0.5" :max="20" :step="0.5" :precision="1" style="width: 110px" placeholder="最大" />
-						<span style="color:#909399">步长</span>
+						<span style="color: #909399">步长</span>
 						<el-input-number v-model="optimRebStep" :min="0.1" :max="5" :step="0.1" :precision="1" style="width: 100px" placeholder="步长" />
 						<el-tag type="info">{{ rebalanceOptimCount }} 个值</el-tag>
 					</div>
@@ -323,9 +327,9 @@
 					</template>
 					<div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
 						<el-input-number v-model="optimCentralMin" :min="1" :max="30" :step="0.5" :precision="1" style="width: 110px" placeholder="最小" />
-						<span style="color:#909399">~</span>
+						<span style="color: #909399">~</span>
 						<el-input-number v-model="optimCentralMax" :min="1" :max="30" :step="0.5" :precision="1" style="width: 110px" placeholder="最大" />
-						<span style="color:#909399">步长</span>
+						<span style="color: #909399">步长</span>
 						<el-input-number v-model="optimCentralStep" :min="0.5" :max="5" :step="0.5" :precision="1" style="width: 100px" placeholder="步长" />
 						<el-tag type="info">{{ centralOptimCount }} 个值</el-tag>
 					</div>
@@ -531,9 +535,9 @@ const expandRange = (min: number, max: number, step: number): number[] => {
 }
 
 /** 再平衡阈值遍历的数量 */
-const rebalanceOptimCount = computed(() => enableRebalance.value ? expandRange(optimRebMin.value, optimRebMax.value, optimRebStep.value).length : 0)
+const rebalanceOptimCount = computed(() => (enableRebalance.value ? expandRange(optimRebMin.value, optimRebMax.value, optimRebStep.value).length : 0))
 /** 策略B中枢年化遍历的数量 */
-const centralOptimCount = computed(() => enableStrategyB.value ? expandRange(optimCentralMin.value, optimCentralMax.value, optimCentralStep.value).length : 0)
+const centralOptimCount = computed(() => (enableStrategyB.value ? expandRange(optimCentralMin.value, optimCentralMax.value, optimCentralStep.value).length : 0))
 /** 总组合数 = 各维度数量相乘（至少1） */
 const totalOptimCombinations = computed(() => {
 	let count = 1
@@ -550,7 +554,9 @@ const bestParamsDesc = computed(() => {
 	if (!optimizationResult.value?.bestParams) return ''
 	const bp = optimizationResult.value.bestParams
 	const p = bp.params || {}
-	const paramStr = Object.entries(p).map(([k, v]) => `${k}=${v}`).join(', ')
+	const paramStr = Object.entries(p)
+		.map(([k, v]) => `${k}=${v}`)
+		.join(', ')
 	return `参数: ${paramStr} | 年化: ${bp.annualReturn?.toFixed(2)}%, 最大回撤: ${bp.maxDrawdown?.toFixed(2)}%, 夏普: ${bp.sharpeRatio?.toFixed(4)}`
 })
 
@@ -666,13 +672,13 @@ const chartOption = computed(() => {
 		...strategyADates.slice(0, 30).map((date: any) => ({
 			xAxis: date,
 			label: { formatter: 'A', position: 'insideEndTop', fontSize: 9 },
-			lineStyle: { color: '#e6a23c', type: 'dashed', width: 1, opacity: 0.8 }
+			lineStyle: { color: '#e6a23c', type: 'dashed', width: 1, opacity: 0.8 },
 		})),
 		...strategyBDates.slice(0, 30).map((date: any) => ({
 			xAxis: date,
 			label: { formatter: 'B', position: 'insideEndBottom', fontSize: 9 },
-			lineStyle: { color: '#409eff', type: 'dashed', width: 1, opacity: 0.8 }
-		}))
+			lineStyle: { color: '#409eff', type: 'dashed', width: 1, opacity: 0.8 },
+		})),
 	]
 
 	const hasBenchmark = !!result.value?.benchmarkMetrics
@@ -689,13 +695,16 @@ const chartOption = computed(() => {
 			itemStyle: { color: '#f56c6c' },
 			lineStyle: { width: 2 },
 			z: 10, // 置于最顶层，确保组合线不被 ETF 线遮挡
-			markLine: markLineData.length > 0 ? {
-				silent: false,
-				symbol: 'none',
-				data: markLineData,
-				label: { show: true }
-			} : undefined
-		}
+			markLine:
+				markLineData.length > 0
+					? {
+							silent: false,
+							symbol: 'none',
+							data: markLineData,
+							label: { show: true },
+						}
+					: undefined,
+		},
 	]
 
 	if (hasBenchmark) {
@@ -736,9 +745,7 @@ const chartOption = computed(() => {
 			borderColor: '#eee',
 		},
 		legend: {
-			data: hasBenchmark
-				? ['组合净值', benchmarkLabel, ...etfCodes.map((c) => result.value?.etfMetrics?.[c]?.name || c)]
-				: ['组合净值', ...etfCodes.map((c) => result.value?.etfMetrics?.[c]?.name || c)],
+			data: hasBenchmark ? ['组合净值', benchmarkLabel, ...etfCodes.map((c) => result.value?.etfMetrics?.[c]?.name || c)] : ['组合净值', ...etfCodes.map((c) => result.value?.etfMetrics?.[c]?.name || c)],
 			// ETF 线默认不选中（selected: false），减少初始视觉干扰
 			selected: etfCodes.reduce((acc, c) => ({ ...acc, [result.value?.etfMetrics?.[c]?.name || c]: false }), {}),
 			bottom: 10,
@@ -863,23 +870,21 @@ const drawdownChartOption = computed(() => {
 const yearlyChartOption = computed(() => {
 	const yearly = result.value?.yearlyStats
 	if (!yearly || yearly.length === 0) return {}
-	
+
 	const hasBenchmark = !!result.value?.benchmarkMetrics
 	const benchmarkLabel = result.value?.benchmarkMetrics?.name || '对比基准'
 
 	const years = yearly.map((y: any) => y.year)
 	const strategyData = yearly.map((y: any) => ({
 		value: y.strategyReturn,
-		itemStyle: { color: y.strategyReturn >= 0 ? '#f56c6c' : '#67c23a' }
+		itemStyle: { color: y.strategyReturn >= 0 ? '#f56c6c' : '#67c23a' },
 	}))
 	const benchmarkData = yearly.map((y: any) => ({
 		value: y.benchmarkReturn,
-		itemStyle: { color: y.benchmarkReturn >= 0 ? 'rgba(245,108,108,0.4)' : 'rgba(103,194,58,0.4)' }
+		itemStyle: { color: y.benchmarkReturn >= 0 ? 'rgba(245,108,108,0.4)' : 'rgba(103,194,58,0.4)' },
 	}))
-	
-	const seriesList = [
-		{ name: '策略组合', type: 'bar', data: strategyData, barGap: '10%', barMaxWidth: 40 }
-	]
+
+	const seriesList = [{ name: '策略组合', type: 'bar', data: strategyData, barGap: '10%', barMaxWidth: 40 }]
 	if (hasBenchmark) {
 		seriesList.push({ name: benchmarkLabel, type: 'bar', data: benchmarkData, barMaxWidth: 40 } as any)
 	}
@@ -895,11 +900,11 @@ const yearlyChartOption = computed(() => {
 					html += `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:6px"></span>${p.seriesName}: <b style="color:${color}">${p.value >= 0 ? '+' : ''}${p.value}%</b><br/>`
 				})
 				return html
-			}
+			},
 		},
-		legend: { 
-			data: hasBenchmark ? ['策略组合', benchmarkLabel] : ['策略组合'], 
-			bottom: 0 
+		legend: {
+			data: hasBenchmark ? ['策略组合', benchmarkLabel] : ['策略组合'],
+			bottom: 0,
 		},
 		grid: { left: '3%', right: '4%', top: '10%', bottom: '15%', containLabel: true },
 		xAxis: { type: 'category', data: years, axisLabel: { fontSize: 12 } },
@@ -907,9 +912,9 @@ const yearlyChartOption = computed(() => {
 			type: 'value',
 			name: '年度收益率(%)',
 			axisLabel: { formatter: (val: number) => `${val}%` },
-			splitLine: { lineStyle: { type: 'dashed' } }
+			splitLine: { lineStyle: { type: 'dashed' } },
 		},
-		series: seriesList
+		series: seriesList,
 	}
 })
 
@@ -1049,7 +1054,11 @@ const applyBestParams = () => {
 	const p = bp.params
 	if (p.rebalanceThreshold != null) params.rebalanceThreshold = p.rebalanceThreshold
 	if (p.centralAnnual != null) params.centralAnnual = p.centralAnnual
-	ElMessage.success(`最优参数已应用：${Object.entries(p).map(([k, v]) => `${k}=${v}`).join(', ')}`)
+	ElMessage.success(
+		`最优参数已应用：${Object.entries(p)
+			.map(([k, v]) => `${k}=${v}`)
+			.join(', ')}`,
+	)
 }
 
 /**

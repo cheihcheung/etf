@@ -1,4 +1,4 @@
-﻿# API 接口文档
+# API 接口文档
 
 > 更新时间: 2026 年 5 月 31 日
 
@@ -109,9 +109,9 @@
 
 ---
 
-## 2. ETF 相关接口
+## 2. 股票相关接口
 
-### 2.1 获取 ETF 列表
+### 2.1 获取股票列表
 
 ```
 GET /api/etf/list
@@ -142,7 +142,7 @@ GET /api/etf/list
 }
 ```
 
-### 2.2 添加 ETF
+### 2.2 添加股票
 
 ```
 POST /api/etf/add
@@ -152,11 +152,11 @@ POST /api/etf/add
 
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| code | string | 是 | ETF 代码 |
-| name | string | 是 | ETF 名称 |
+| code | string | 是 | 股票代码 |
+| name | string | 是 | 股票名称 |
 | assetType | string | 是 | 资产类型（股票类/债券类/红利类/商品类/黄金类） |
 
-**说明**: 添加成功后系统自动尝试拉取该 ETF 的实时报价并写入 `current_price`、`change_pct`，初始配比默认为 `0.0000`。
+**说明**: 添加成功后系统自动尝试拉取该股票的实时报价并写入 `current_price`、`change_pct`，初始配比默认为 `0.0000`。
 
 **响应示例**：
 
@@ -167,7 +167,7 @@ POST /api/etf/add
 }
 ```
 
-### 2.3 编辑 ETF
+### 2.3 编辑股票
 
 ```
 PUT /api/etf/update
@@ -177,8 +177,8 @@ PUT /api/etf/update
 
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| code | string | 是 | ETF 代码 |
-| name | string | 否 | ETF 名称 |
+| code | string | 是 | 股票代码 |
+| name | string | 否 | 股票名称 |
 | assetType | string | 否 | 资产类型 |
 | initialRatio | number | 否 | 初始配比(%) |
 
@@ -192,7 +192,7 @@ DELETE /api/etf/delete/:code
 
 | 参数 | 类型 | 说明 |
 | --- | --- |
-| code | ETF 代码 |
+| code | 股票代码 |
 
 ### 2.5 同步指定 ETF 历史行情
 
@@ -206,7 +206,7 @@ POST /api/etf/sync-history
 | --- | --- | --- | --- |
 | startDate | string | 是 | 同步起始日期 (YYYY-MM-DD) |
 | endDate | string | 是 | 同步结束日期 (YYYY-MM-DD) |
-| codes | array | 否 | 指定 ETF 代码列表 (如 `["510300", "161119"]`)，不传或为空则同步全部 |
+| codes | array | 否 | 指定 股票代码列表 (如 `["510300", "161119"]`)，不传或为空则同步全部 |
 
 **响应示例**：
 ```json
@@ -228,7 +228,7 @@ POST /api/etf/sync-all
 ```json
 {
   "success": true,
-  "message": "同步完成：3只ETF实时价格已更新，自动补全了15条历史数据"
+  "message": "同步完成：3只股票实时价格已更新，自动补全了15条历史数据"
 }
 ```
 
@@ -352,7 +352,7 @@ GET /api/config/initial-ratios
 | --- | --- | --- |
 | data | array | 初始占比配置列表 |
 | data[].etfCode | string | ETF 交易代码 |
-| data[].name | string | ETF 名称 |
+| data[].name | string | 股票名称 |
 | data[].ratio | number | 初始占比配置百分比(%)，当被禁用时该值为 0 |
 | data[].isEnabled | boolean | 是否启用（禁用时物理剔除该标的并从策略配置中隐藏） |
 | data[].stepRatio | number | 该标的专属的每档加减比/步长(%)，默认 5.0 |
@@ -378,7 +378,7 @@ PUT /api/config/initial-ratios
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | ratios | array | 是 | ETF 初始比与专属步长数组 |
-| ratios[].etfCode | string | 是 | ETF 代码 |
+| ratios[].etfCode | string | 是 | 股票代码 |
 | ratios[].ratio | number | 是 | 初始比例(%)，如已禁用，传入 0 |
 | ratios[].isEnabled | boolean | 是 | 是否启用 |
 | ratios[].stepRatio | number | 是 | 该标的专属加减比步长(%)，默认 5.0 |

@@ -117,4 +117,19 @@ export const healthCheck = async () => {
     return request.get('/health')
 }
 
-export default { etfApi, configApi, backtestApi, recordsApi, healthCheck }
+// ==================== XLS 历史数据导入 ====================
+export const importXlsApi = {
+    preview: async (file: File) => {
+        const formData = new FormData()
+        formData.append('file', file)
+        return request.post('/import/xls-preview', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        })
+    },
+
+    save: async (etfCode: string, filePath: string) => {
+        return request.post('/import/xls-save', { etfCode, filePath })
+    }
+}
+
+export default { etfApi, configApi, backtestApi, recordsApi, healthCheck, importXlsApi }
