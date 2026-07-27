@@ -276,7 +276,7 @@ class BacktestService {
         return {
             totalCombinations: combinations.length,
             sortedResults: results.slice(0, 50),
-            bestParams: results[0] ? results[0].params : null
+            bestParams: results[0] || null
         };
     }
 

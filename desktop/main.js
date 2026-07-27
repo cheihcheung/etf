@@ -56,6 +56,7 @@ function createWindow() {
         minHeight: 700,
         frame: false, // 无边框窗口，自定义标题栏
         autoHideMenuBar: true,
+        icon: path.join(__dirname, 'assets/logo.png'),
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,

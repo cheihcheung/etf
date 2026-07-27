@@ -109,8 +109,8 @@
 				</el-row>
 			</el-form>
 			<div style="text-align: right; margin-top: 12px">
-				<el-button type="primary" @click="runBacktest" :loading="running" :icon="VideoPlay">单次回测</el-button>
-				<el-button type="warning" @click="showOptimization" :icon="TrendCharts">参数寻优</el-button>
+				<el-button type="primary" @click="runBacktest" :loading="running" :icon="VideoPlay">开始回测</el-button>
+				<!-- <el-button type="warning" @click="showOptimization" :icon="TrendCharts">参数寻优</el-button> -->
 			</div>
 		</el-card>
 
@@ -313,11 +313,11 @@
 						<span>再平衡阈值范围(%)</span>
 					</template>
 					<div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
-						<el-input-number v-model="optimRebMin" :min="0.5" :max="20" :step="0.5" :precision="1" style="width: 110px" placeholder="最小" />
+						<el-input-number v-model="optimRebMin" :min="0.5" :max="20" :step="0.5" :precision="1" style="width: 120px" placeholder="最小" />
 						<span style="color: #909399">~</span>
-						<el-input-number v-model="optimRebMax" :min="0.5" :max="20" :step="0.5" :precision="1" style="width: 110px" placeholder="最大" />
+						<el-input-number v-model="optimRebMax" :min="0.5" :max="20" :step="0.5" :precision="1" style="width: 120px" placeholder="最大" />
 						<span style="color: #909399">步长</span>
-						<el-input-number v-model="optimRebStep" :min="0.1" :max="5" :step="0.1" :precision="1" style="width: 100px" placeholder="步长" />
+						<el-input-number v-model="optimRebStep" :min="0.1" :max="5" :step="0.1" :precision="1" style="width: 120px" placeholder="步长" />
 						<el-tag type="info">{{ rebalanceOptimCount }} 个值</el-tag>
 					</div>
 				</el-form-item>

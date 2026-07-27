@@ -6,7 +6,7 @@
     "scripts": {
         "dev": "concurrently \"npm run dev:renderer\" \"wait-on http://localhost:5173 && electron main.js\"",
         "dev:renderer": "cd client && npm run dev",
-        "dist": "npm run build:renderer && electron-builder",
+        "build": "npm run build:renderer && electron-builder",
         "build:renderer": "cd client && npm run build",
         "postinstall": "cd client && npm install && cd .. && electron-rebuild -f -w better-sqlite3"
     },
@@ -40,7 +40,7 @@
     },
     "build": {
         "appId": "com.etf.strategy",
-        "productName": "策略系统",
+        "productName": "多资产策略回测系统",
         "directories": {
             "output": "dist"
         },
@@ -60,7 +60,8 @@
             }
         ],
         "win": {
-            "target": "nsis"
+            "target": "nsis",
+            "icon": "assets/logo.png"
         },
         "nsis": {
             "oneClick": false,
