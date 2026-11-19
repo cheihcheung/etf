@@ -115,11 +115,15 @@
 				</el-table-column>
 				<el-table-column label="操作" width="100" align="center">
 					<template #default="{ row }">
-						<el-button :disabled="totalRatioSum >= 100 || !row.isEnabled" @click="setMax(row)" size="small">补满</el-button>
+						<el-tooltip :disabled="totalRatioSum < 100 && row.isEnabled" content="当前资产总占比已达100%或标的未启用，无法继续补满" placement="top">
+							<span>
+								<el-button :disabled="totalRatioSum >= 100 || !row.isEnabled" @click="setMax(row)" size="small">补满</el-button>
+							</span>
+						</el-tooltip>
 					</template>
 				</el-table-column>
 			</el-table>
-			<div v-if="ratioList.length === 0" style="text-align: center; padding: 30px; color: #909399">暂无股票数据，请先在\"股票管理\"中添加股票</div>
+			<div v-if="ratioList.length === 0" style="text-align: center; padding: 30px; color: #909399">暂无股票数据，请点击上方“添加股票”按钮进行添加</div>
 		</el-card>
 
 		<el-dialog v-model="addDialogVisible" :title="isEditing ? '编辑股票' : '添加股票'" width="500px">

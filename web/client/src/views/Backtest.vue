@@ -93,11 +93,34 @@
 				</el-row>
 				<el-row :gutter="20">
 					<el-col :span="8">
+						<el-form-item label="成交模式">
+							<el-select v-model="params.tradeMatchMode" style="width: 100%">
+								<el-option label="当日收盘价成交" value="close" />
+								<el-option label="次日开盘价成交 (真实实盘)" value="next_open" />
+							</el-select>
+						</el-form-item>
+					</el-col>
+					<el-col :span="8">
+						<el-form-item>
+							<template #label>
+								<span class="custom-form-label">
+									策略A防抖缓冲(%)
+									<el-tooltip content="回撤反弹退档时的滞后防抖缓冲区，消除回撤临界点上下震荡导致的反复买卖摩擦损耗" placement="top" effect="dark">
+										<el-icon class="info-icon"><InfoFilled /></el-icon>
+									</el-tooltip>
+								</span>
+							</template>
+							<el-input-number v-model="params.drawdownBuffer" :min="0" :max="5" :step="0.5" :precision="1" style="width: 100%" :disabled="!enableStrategyA" />
+						</el-form-item>
+					</el-col>
+					<el-col :span="8">
 						<el-form-item label="创新高自动复位">
 							<el-switch v-model="params.resetOnHigh" />
 						</el-form-item>
 					</el-col>
-					<el-col :span="16">
+				</el-row>
+				<el-row :gutter="20">
+					<el-col :span="24">
 						<el-form-item label="策略组合">
 							<el-checkbox-group v-model="strategyToggles">
 								<el-checkbox-button value="rebalance">再平衡</el-checkbox-button>
@@ -277,7 +300,7 @@
 			</template>
 			<el-table :data="pagedHistoryResults" stripe v-loading="loadingHistory">
 				<el-table-column label="时间" width="170" align="center">
-					<template #default="{ row }">{{ row.create_time ? row.create_time.replace('T', ' ').replace(/\.\d+Z/, '') : '-' }}</template>
+					<template #default="{ row }">{{ formatDateTime(row.create_time) }}</template>
 				</el-table-column>
 				<el-table-column prop="name" label="名称" min-width="160" align="left" />
 				<el-table-column label="年化" width="100" align="center">
@@ -393,7 +416,7 @@
  *      兼容了后端 camelCase 和 snake_case 两种命名格式（历史遗留）。
  *   3. 历史记录列表仅展示最新 500 条精简记录（后端路由限制）。
  */
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
@@ -403,7 +426,7 @@ import { VideoPlay, TrendCharts, InfoFilled } from '@element-plus/icons-vue'
 import { backtestApi, etfApi, configApi } from '../api'
 import { ElMessage } from 'element-plus'
 import type { BacktestParams, BacktestResult } from '../types'
-import { getTodayString } from '@/utils'
+import { getTodayString, formatDateTime } from '@/utils'
 
 // ECharts 按需注册：折线图、柱状图，以及 tooltip/legend/grid/markLine 等组件
 use([LineChart, BarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, MarkLineComponent, CanvasRenderer])
@@ -479,6 +502,8 @@ const params = reactive<BacktestParams>({
 	strategyPriority: 'rebalance',
 	centralAnnual: 10,
 	resetOnHigh: true,
+	tradeMatchMode: 'close',
+	drawdownBuffer: 1.0,
 })
 
 // ===================== 策略开关 & 派生状态 =====================
@@ -1079,16 +1104,63 @@ const loadHistory = async () => {
 
 /**
  * 查看某条历史回测记录的详细数据
- * 从后端获取 daily_detail（可能是 JSON 字符串或已解析的对象），
- * 解析后赋值给 result，触发图表和指标表格重新渲染
+ * 从后端获取完整回测详情，赋值给 result，触发图表和指标表格重新渲染
  */
 const viewHistoryDetail = async (row: any) => {
 	try {
 		const res: any = await backtestApi.detail(row.id)
-		if (res.data?.daily_detail) {
-			const detail = typeof res.data.daily_detail === 'string' ? JSON.parse(res.data.daily_detail) : res.data.daily_detail
-			result.value = detail
+		const data = res.data
+		if (!data) {
+			ElMessage.warning('未能获取到该回测记录详情')
+			return
 		}
+
+		// 规范化 result 结构，无论是旧格式数组还是新格式对象都能完美解析
+		let targetResult: any = null
+		if (data.dailyValues && Array.isArray(data.dailyValues)) {
+			targetResult = data
+		} else if (data.daily_detail) {
+			const detail = typeof data.daily_detail === 'string' ? JSON.parse(data.daily_detail) : data.daily_detail
+			if (detail && !Array.isArray(detail) && detail.dailyValues) {
+				targetResult = detail
+			} else if (Array.isArray(detail)) {
+				targetResult = {
+					...data,
+					dailyValues: detail,
+				}
+			}
+		} else {
+			targetResult = data
+		}
+
+		// 兜底补齐指标数值类型，防止 computed 中 .toFixed() 抛出 TypeError
+		targetResult.totalReturn = parseFloat(targetResult.totalReturn ?? targetResult.total_return ?? 0)
+		targetResult.annualReturn = parseFloat(targetResult.annualReturn ?? targetResult.annual_return ?? 0)
+		targetResult.maxDrawdown = parseFloat(targetResult.maxDrawdown ?? targetResult.max_drawdown ?? 0)
+		targetResult.annualVolatility = parseFloat(targetResult.annualVolatility ?? targetResult.annual_volatility ?? 0)
+		targetResult.sharpeRatio = parseFloat(targetResult.sharpeRatio ?? targetResult.sharpe_ratio ?? 0)
+		if (!targetResult.dailyValues && Array.isArray(targetResult.daily_detail)) {
+			targetResult.dailyValues = targetResult.daily_detail
+		}
+		if (!targetResult.yearlyStats) targetResult.yearlyStats = []
+		if (!targetResult.etfMetrics) targetResult.etfMetrics = {}
+		if (!targetResult.tradeRecords) targetResult.tradeRecords = []
+
+		result.value = targetResult
+
+		// 同步更新页面参数上的日期
+		if (targetResult.params?.startDate) params.startDate = targetResult.params.startDate
+		if (targetResult.params?.endDate) params.endDate = targetResult.params.endDate
+
+		ElMessage.success(`已载入历史回测记录：${row.name || formatDateTime(row.create_time)}`)
+
+		// 平滑滚动至回测结果区域
+		nextTick(() => {
+			const resultElement = document.querySelector('.result-comparison')
+			if (resultElement) {
+				resultElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+			}
+		})
 	} catch (e: any) {
 		ElMessage.error('加载详情失败: ' + e.message)
 	}

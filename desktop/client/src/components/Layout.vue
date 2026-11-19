@@ -27,7 +27,17 @@
 
 		<!-- 标签页导航栏（桌面风格，类似浏览器/VS Code 标签页） -->
 		<nav class="tab-bar">
-			<div v-for="tab in tabs" :key="tab.path" class="tab-item" :class="{ active: route.path === tab.path }" @click="switchTab(tab.path)">
+			<div
+				v-for="tab in tabs"
+				:key="tab.path"
+				class="tab-item"
+				:class="{ active: route.path === tab.path }"
+				role="tab"
+				tabindex="0"
+				@click.stop="switchTab(tab.path)"
+				@keydown.enter="switchTab(tab.path)"
+				@keydown.space.prevent="switchTab(tab.path)"
+			>
 				<el-icon class="tab-icon"><component :is="tab.icon" /></el-icon>
 				<span class="tab-label">{{ tab.label }}</span>
 			</div>
@@ -35,7 +45,7 @@
 			<div class="tab-bar-right">
 				<el-tag v-if="healthStatus" type="success" effect="dark" size="small" round>运行中</el-tag>
 				<el-tag v-else type="danger" effect="dark" size="small" round>未连接</el-tag>
-				<el-button text size="small" @click="refreshData" class="refresh-btn" title="刷新连接状态">
+				<el-button text size="small" @click.stop="refreshData" class="refresh-btn" title="刷新连接状态">
 					<el-icon class="refresh-icon"><Refresh /></el-icon>
 				</el-button>
 			</div>
@@ -85,7 +95,13 @@ const isMaximized = ref(false)
 
 /** 切换标签页 */
 const switchTab = (path: string) => {
-	router.push(path)
+	if (route.path !== path) {
+		router.push(path).catch((err) => {
+			if (err?.name !== 'NavigationDuplicated') {
+				console.error('切换页面失败:', err)
+			}
+		})
+	}
 }
 
 /** 调用健康检查接口检测连接状态 */
@@ -206,7 +222,7 @@ onMounted(() => {
 	color: white !important;
 }
 
-/* ============ 标签页导航栏（不可拖拽） ============ */
+/* ============ 标签页导航栏（严格禁止窗口拖拽，保障所有点击事件即时响应） ============ */
 .tab-bar {
 	height: 38px;
 	background: #ffffff;
@@ -215,7 +231,9 @@ onMounted(() => {
 	align-items: stretch;
 	padding: 0 8px;
 	flex-shrink: 0;
-	-webkit-app-region: no-drag; /* 标签栏不可拖拽 */
+	-webkit-app-region: no-drag !important;
+	position: relative;
+	z-index: 100;
 }
 
 .tab-bar-right {
@@ -224,6 +242,7 @@ onMounted(() => {
 	margin-left: auto; /* 推到最右侧 */
 	gap: 6px;
 	padding-right: 4px;
+	-webkit-app-region: no-drag !important;
 }
 
 .refresh-btn {
@@ -238,6 +257,8 @@ onMounted(() => {
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	-webkit-app-region: no-drag !important;
+	cursor: pointer;
 }
 
 .refresh-btn:hover {
@@ -258,7 +279,7 @@ onMounted(() => {
 	align-items: center;
 	gap: 6px;
 	padding: 0 16px;
-	cursor: pointer;
+	cursor: pointer !important;
 	color: #606266;
 	font-size: 13px;
 	border-right: 1px solid #f0f2f5;
@@ -267,6 +288,13 @@ onMounted(() => {
 		background 0.15s,
 		color 0.15s;
 	user-select: none;
+	-webkit-app-region: no-drag !important;
+	pointer-events: auto !important;
+}
+
+.tab-item * {
+	-webkit-app-region: no-drag !important;
+	pointer-events: auto !important;
 }
 
 .tab-item:hover {
@@ -277,6 +305,7 @@ onMounted(() => {
 .tab-item.active {
 	color: #409eff;
 	background: #f0f7ff;
+	font-weight: 500;
 }
 
 .tab-item.active::after {
@@ -291,10 +320,12 @@ onMounted(() => {
 
 .tab-icon {
 	font-size: 15px;
+	pointer-events: none;
 }
 
 .tab-label {
 	white-space: nowrap;
+	pointer-events: none;
 }
 
 /* ============ 主内容区（不可拖拽） ============ */

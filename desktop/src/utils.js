@@ -83,6 +83,14 @@ function splitYears(startDate, endDate) {
     return years;
 }
 
+function calcFee(amount, rate, exemptFive = true) {
+    let fee = amount * (rate / 100);
+    if (!exemptFive && fee < 5) {
+        fee = 5;
+    }
+    return Math.round(fee * 100) / 100;
+}
+
 module.exports = {
     calcAnnualReturn,
     calcMaxDrawdown,
@@ -92,6 +100,7 @@ module.exports = {
     calcRallyPercent,
     calcAnnualReturnFromDates,
     checkRatioSum,
+    calcFee,
     sleep,
     splitYears
 };

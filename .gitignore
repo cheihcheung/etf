@@ -5,13 +5,24 @@
 .env
 
 # 依赖
-node_modules
+node_modules/
 
-# 桌面端运行时数据
+# 临时开发/测试目录
+scratch/
+
+# SQLite 临时日志与锁文件
+*.db-journal
+*.db-shm
+*.db-wal
+
+# 桌面端运行时数据 (保留初始种子库 etf.db)
 /desktop/data/*
+!/desktop/data/etf.db
 
-# 桌面端打包输出
-/desktop/dist/*
+# 打包输出
+/desktop/dist/
+/web/dist/
 
 # 前端构建产物
-/desktop/client/dist/*
+/desktop/client/dist/
+/web/client/dist/

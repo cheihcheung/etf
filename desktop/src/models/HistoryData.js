@@ -86,6 +86,39 @@ class HistoryDataModel {
         return this.db.execute(sql, actualParams);
     }
 
+    async bulkUpsert(records) {
+        if (!records || records.length === 0) return 0;
+        const sql = `
+            INSERT INTO ${this.tableName} (etf_code, trade_date, open_price, close_price, high_price, low_price, volume, change_pct)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(etf_code, trade_date) DO UPDATE SET
+                open_price = excluded.open_price,
+                close_price = excluded.close_price,
+                high_price = excluded.high_price,
+                low_price = excluded.low_price,
+                volume = excluded.volume,
+                change_pct = excluded.change_pct
+        `;
+        const insertStmt = this.db.db.prepare(sql);
+        return this.db.transaction(() => {
+            let count = 0;
+            for (const r of records) {
+                insertStmt.run(
+                    r.etf_code || r.etfCode,
+                    r.trade_date || r.tradeDate,
+                    r.open_price ?? r.openPrice ?? r.close_price ?? r.closePrice,
+                    r.close_price ?? r.closePrice,
+                    r.high_price ?? r.highPrice ?? r.close_price ?? r.closePrice,
+                    r.low_price ?? r.lowPrice ?? r.close_price ?? r.closePrice,
+                    r.volume || 0,
+                    r.change_pct ?? r.changePct ?? 0
+                );
+                count++;
+            }
+            return count;
+        });
+    }
+
     async getHistoryByRange(etfCode, startDate, endDate) {
         const sql = `
             SELECT * FROM ${this.tableName}

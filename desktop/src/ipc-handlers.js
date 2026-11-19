@@ -203,29 +203,18 @@ function registerIpcHandlers(ipcMain, db) {
                     if (startDate <= today) {
                         const missingData = await spider.fetchETFHistoryData(etf.code, startDate, today);
                         if (missingData && missingData.length > 0) {
-                            for (const row of missingData) {
-                                const existingK = await HistoryData.findOne({
-                                    etf_code: etf.code,
-                                    trade_date: row.tradeDate
-                                });
-                                if (existingK) {
-                                    await HistoryData.update(existingK.id, {
-                                        close_price: row.closePrice
-                                    });
-                                } else {
-                                    await HistoryData.create({
-                                        etf_code: etf.code,
-                                        trade_date: row.tradeDate,
-                                        open_price: row.openPrice,
-                                        close_price: row.closePrice,
-                                        high_price: row.highPrice,
-                                        low_price: row.lowPrice,
-                                        volume: row.volume,
-                                        change_pct: row.changePct
-                                    });
-                                }
-                            }
-                            historySyncedCount += missingData.length;
+                            const formatted = missingData.map(row => ({
+                                etf_code: etf.code,
+                                trade_date: row.tradeDate,
+                                open_price: row.openPrice,
+                                close_price: row.closePrice,
+                                high_price: row.highPrice,
+                                low_price: row.lowPrice,
+                                volume: row.volume,
+                                change_pct: row.changePct
+                            }));
+                            await HistoryData.bulkUpsert(formatted);
+                            historySyncedCount += formatted.length;
                         }
                     }
                 } catch (histErr) {
@@ -271,34 +260,31 @@ function registerIpcHandlers(ipcMain, db) {
                     }
 
                     if (data && data.length > 0) {
-                        for (const row of data) {
-                            const existingK = await HistoryData.findOne({
-                                etf_code: etf.code,
-                                trade_date: row.tradeDate
-                            });
-
-                            if (existingK) {
-                                await HistoryData.update(existingK.id, {
-                                    open_price: row.openPrice,
-                                    close_price: row.closePrice,
-                                    high_price: row.highPrice,
-                                    low_price: row.lowPrice,
-                                    volume: row.volume,
-                                    change_pct: row.changePct
-                                });
-                            } else {
-                                await HistoryData.create({
-                                    etf_code: etf.code,
-                                    trade_date: row.tradeDate,
-                                    open_price: row.openPrice,
-                                    close_price: row.closePrice,
-                                    high_price: row.highPrice,
-                                    low_price: row.lowPrice,
-                                    volume: row.volume,
-                                    change_pct: row.changePct
-                                });
+                        db.transaction(() => {
+                            const upsertStmt = db.db.prepare(`
+                                INSERT INTO history_data (etf_code, trade_date, open_price, close_price, high_price, low_price, volume, change_pct)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                ON CONFLICT(etf_code, trade_date) DO UPDATE SET
+                                    open_price = excluded.open_price,
+                                    close_price = excluded.close_price,
+                                    high_price = excluded.high_price,
+                                    low_price = excluded.low_price,
+                                    volume = excluded.volume,
+                                    change_pct = excluded.change_pct
+                            `);
+                            for (const row of data) {
+                                upsertStmt.run(
+                                    etf.code,
+                                    row.tradeDate,
+                                    row.openPrice,
+                                    row.closePrice,
+                                    row.highPrice,
+                                    row.lowPrice,
+                                    row.volume,
+                                    row.changePct
+                                );
                             }
-                        }
+                        });
                         totalCount += data.length;
                     }
                 }
@@ -569,7 +555,16 @@ function registerIpcHandlers(ipcMain, db) {
     // 执行回测
     ipcMain.handle('backtest:run', async (event, params) => {
         try {
-            const result = await Backtest.runBacktest(params);
+            // 动态支持热载入最新算法实现，避免主进程缓存旧逻辑
+            let runner = Backtest;
+            try {
+                delete require.cache[require.resolve('./services/backtest')];
+                const DynamicBacktest = require('./services/backtest');
+                runner = new DynamicBacktest(db);
+            } catch (loadErr) {
+                console.warn('动态加载 BacktestService 失败，回退使用实例:', loadErr.message);
+            }
+            const result = await runner.runBacktest(params);
             if (result.error) {
                 return { success: false, message: String(result.error) };
             }
@@ -582,7 +577,13 @@ function registerIpcHandlers(ipcMain, db) {
     // 参数寻优
     ipcMain.handle('backtest:optimize', async (event, params) => {
         try {
-            const result = await Backtest.runParameterOptimization(params);
+            let runner = Backtest;
+            try {
+                delete require.cache[require.resolve('./services/backtest')];
+                const DynamicBacktest = require('./services/backtest');
+                runner = new DynamicBacktest(db);
+            } catch (_) {}
+            const result = await runner.runParameterOptimization(params);
             return { success: true, data: sanitizeData(result) };
         } catch (error) {
             return { success: false, message: getErrorMessage(error) };
@@ -592,7 +593,13 @@ function registerIpcHandlers(ipcMain, db) {
     // 获取回测结果
     ipcMain.handle('backtest:results', async () => {
         try {
-            const results = await Backtest.getBacktestResults();
+            let runner = Backtest;
+            try {
+                delete require.cache[require.resolve('./services/backtest')];
+                const DynamicBacktest = require('./services/backtest');
+                runner = new DynamicBacktest(db);
+            } catch (_) {}
+            const results = await runner.getBacktestResults();
             return { success: true, data: sanitizeData(results) };
         } catch (error) {
             return { success: false, message: getErrorMessage(error) };
@@ -602,7 +609,13 @@ function registerIpcHandlers(ipcMain, db) {
     // 获取回测详情
     ipcMain.handle('backtest:detail', async (event, id) => {
         try {
-            const detail = await Backtest.getBacktestDetail(id);
+            let runner = Backtest;
+            try {
+                delete require.cache[require.resolve('./services/backtest')];
+                const DynamicBacktest = require('./services/backtest');
+                runner = new DynamicBacktest(db);
+            } catch (_) {}
+            const detail = await runner.getBacktestDetail(id);
             if (!detail) {
                 return { success: false, message: '回测结果不存在' };
             }
@@ -747,44 +760,40 @@ function registerIpcHandlers(ipcMain, db) {
 
     // 保存解析后的 xls 数据到数据库
     ipcMain.handle('import:xls-save', async (event, { etfCode, filePath }) => {
-        const HistoryData = new HistoryDataModel(db);
         try {
             const dataRows = parseXlsRows(filePath);
-
             let insertCount = 0;
-            let updateCount = 0;
 
-            for (const row of dataRows) {
-                if (!row.trade_date || row.close_price <= 0) continue;
+            db.transaction(() => {
+                const upsertStmt = db.db.prepare(`
+                    INSERT INTO history_data (etf_code, trade_date, open_price, close_price, high_price, low_price, volume, change_pct)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(etf_code, trade_date) DO UPDATE SET
+                        open_price = excluded.open_price,
+                        close_price = excluded.close_price,
+                        high_price = excluded.high_price,
+                        low_price = excluded.low_price,
+                        volume = excluded.volume,
+                        change_pct = excluded.change_pct
+                `);
 
-                const existing = await HistoryData.findOne({ etf_code: etfCode, trade_date: row.trade_date });
-
-                if (existing) {
-                    await HistoryData.update(existing.id, {
-                        open_price: row.open_price,
-                        close_price: row.close_price,
-                        high_price: row.high_price,
-                        low_price: row.low_price,
-                        volume: row.volume,
-                        change_pct: row.change_pct
-                    });
-                    updateCount++;
-                } else {
-                    await HistoryData.create({
-                        etf_code: etfCode,
-                        trade_date: row.trade_date,
-                        open_price: row.open_price,
-                        close_price: row.close_price,
-                        high_price: row.high_price,
-                        low_price: row.low_price,
-                        volume: row.volume,
-                        change_pct: row.change_pct
-                    });
+                for (const row of dataRows) {
+                    if (!row.trade_date || row.close_price <= 0) continue;
+                    upsertStmt.run(
+                        etfCode,
+                        row.trade_date,
+                        row.open_price,
+                        row.close_price,
+                        row.high_price,
+                        row.low_price,
+                        row.volume,
+                        row.change_pct
+                    );
                     insertCount++;
                 }
-            }
+            });
 
-            return { success: true, message: `导入完成：新增 ${insertCount} 条，更新 ${updateCount} 条`, data: { insertCount, updateCount } };
+            return { success: true, message: `导入完成：成功写入/更新 ${insertCount} 条数据`, data: { insertCount, updateCount: 0 } };
         } catch (error) {
             return { success: false, message: '导入失败: ' + getErrorMessage(error) };
         }

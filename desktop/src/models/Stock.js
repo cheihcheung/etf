@@ -148,7 +148,7 @@ class StockModel {
         return this.updateWhere({ code }, [], {
             current_price: price,
             change_pct: changePct,
-            update_time: new Date().toISOString()
+            update_time: new Date(Date.now() + 8 * 3600 * 1000).toISOString().replace('T', ' ').replace(/\.\d+Z/, '')
         });
     }
 }

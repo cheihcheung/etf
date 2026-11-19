@@ -91,6 +91,8 @@ export interface BacktestParams {
 	strategyPriority: string
 	centralAnnual: number
 	resetOnHigh: boolean
+	tradeMatchMode?: 'close' | 'next_open'
+	drawdownBuffer?: number
 }
 
 export interface BacktestResult {

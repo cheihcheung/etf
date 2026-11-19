@@ -45,7 +45,7 @@ class TradeRecordModel {
 
     async logTrade(tradeData) {
         return this.create({
-            trade_time: tradeData.tradeTime || new Date().toISOString(),
+            trade_time: tradeData.tradeTime || new Date(Date.now() + 8 * 3600 * 1000).toISOString().replace('T', ' ').replace(/\.\d+Z/, ''),
             trade_type: tradeData.tradeType,
             etf_code: tradeData.etfCode,
             trade_direction: tradeData.tradeDirection,

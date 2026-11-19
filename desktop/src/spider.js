@@ -68,6 +68,32 @@ function getTxCode(etfCode) {
 }
 
 async function fetchETFRealTimeQuote(etfCode) {
+    if (etfCode.toUpperCase().startsWith('H')) {
+        try {
+            const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+            const sevenDaysAgo = new Date(Date.now() - 7 * 86400 * 1000).toISOString().slice(0, 10).replace(/-/g, '');
+            const url = `https://www.csindex.com.cn/csindex-home/perf/index-perf?indexCode=${etfCode}&startDate=${sevenDaysAgo}&endDate=${todayStr}`;
+            const resp = await request.get(url);
+            if (resp.data && resp.data.code === '200' && Array.isArray(resp.data.data) && resp.data.data.length > 0) {
+                const latest = resp.data.data[resp.data.data.length - 1];
+                return {
+                    code: String(etfCode),
+                    name: String(latest.indexNameCn || '中证全债'),
+                    currentPrice: parseFloat(latest.close),
+                    lastClose: parseFloat(latest.close) - parseFloat(latest.change || 0),
+                    openPrice: parseFloat(latest.open || latest.close),
+                    volume: parseInt(latest.tradingVol || 0),
+                    highPrice: parseFloat(latest.high || latest.close),
+                    lowPrice: parseFloat(latest.low || latest.close),
+                    changePct: parseFloat(latest.changePct || 0),
+                    amount: parseFloat(latest.tradingValue || 0),
+                };
+            }
+        } catch (e) {
+            // fallback
+        }
+    }
+
     return await fetchWithRetry(async () => {
         const txCode = getTxCode(etfCode);
         const url = `https://qt.gtimg.cn/q=${txCode}`;
@@ -122,25 +148,77 @@ function parseKlines(klines, startDate, endDate) {
     return result;
 }
 
-async function fetchETFHistoryData(etfCode, startDate, endDate) {
+async function fetchCSIndexHistoryData(indexCode, startDate, endDate) {
     return await fetchWithRetry(async () => {
-        const txCode = getTxCode(etfCode);
-        const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${txCode},day,${startDate},${endDate},800,qfq`;
+        const start = startDate.replace(/-/g, '');
+        const end = endDate.replace(/-/g, '');
+        const url = `https://www.csindex.com.cn/csindex-home/perf/index-perf?indexCode=${indexCode}&startDate=${start}&endDate=${end}`;
         const response = await request.get(url);
         const data = response.data;
-
-        if (!data || data.code !== 0 || !data.data) {
+        if (!data || data.code !== '200' || !Array.isArray(data.data)) {
             return [];
         }
-
-        const stockData = data.data[txCode];
-        if (!stockData) return [];
-
-        const klines = stockData.qfqday || stockData.day || stockData.hfqday;
-        if (!klines || klines.length === 0) return [];
-
-        return parseKlines(klines, startDate, endDate);
+        return data.data.map(item => {
+            const raw = item.tradeDate;
+            const tradeDate = `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+            const closePrice = parseFloat(item.close) || 0;
+            const openPrice = item.open != null ? parseFloat(item.open) : closePrice;
+            const highPrice = item.high != null ? parseFloat(item.high) : closePrice;
+            const lowPrice = item.low != null ? parseFloat(item.low) : closePrice;
+            const volume = parseInt(item.tradingVol) || 0;
+            const changePct = parseFloat(item.changePct) || 0;
+            return {
+                tradeDate,
+                openPrice,
+                closePrice,
+                highPrice,
+                lowPrice,
+                volume,
+                changePct
+            };
+        });
     });
+}
+
+async function fetchETFHistoryData(etfCode, startDate, endDate) {
+    if (etfCode.toUpperCase().startsWith('H')) {
+        try {
+            const csData = await fetchCSIndexHistoryData(etfCode, startDate, endDate);
+            if (csData && csData.length > 0) return csData;
+        } catch (e) {
+            // fallback
+        }
+    }
+
+    try {
+        const txData = await fetchWithRetry(async () => {
+            const txCode = getTxCode(etfCode);
+            const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${txCode},day,${startDate},${endDate},800,qfq`;
+            const response = await request.get(url);
+            const data = response.data;
+
+            if (!data || data.code !== 0 || !data.data) {
+                return [];
+            }
+
+            const stockData = data.data[txCode];
+            if (!stockData) return [];
+
+            const klines = stockData.qfqday || stockData.day || stockData.hfqday;
+            if (!klines || klines.length === 0) return [];
+
+            return parseKlines(klines, startDate, endDate);
+        });
+        if (txData && txData.length > 0) return txData;
+    } catch (txErr) {
+        // fallback to EastMoney
+    }
+
+    try {
+        return await fetchETFHistoryDataEastMoney(etfCode, startDate, endDate);
+    } catch (emErr) {
+        return [];
+    }
 }
 
 async function searchETF(keyword) {
@@ -233,6 +311,7 @@ module.exports = {
     fetchETFRealTimeQuote,
     fetchETFHistoryData,
     fetchETFHistoryDataEastMoney,
+    fetchCSIndexHistoryData,
     searchETF,
     fetchETFList,
     fetchHS300Index,

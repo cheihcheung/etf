@@ -93,7 +93,9 @@ async function runBacktest(params) {
         tradeFrequency = 'monthly',
         strategyPriority = 'rebalance',
         centralAnnual = 10,
-        resetOnHigh = true
+        resetOnHigh = true,
+        drawdownBuffer = 1.0,
+        tradeMatchMode = 'close'
     } = params;
 
     // ===== 阶段 0：静默自清洗 —— 剥离被禁用(is_enabled=0) the ETF =====
@@ -158,7 +160,7 @@ async function runBacktest(params) {
         try {
             const dbRows = await HistoryData.getHistoryByRange(etf.code, startDate, endDate);
             const scaleFactor = etf.scale_factor ? parseInt(etf.scale_factor) : 1;
-            
+
             if (dbRows && dbRows.length > 0) {
                 historyDataMap[etf.code] = dbRows.map(d => {
                     let tradeDate;
@@ -220,7 +222,7 @@ async function runBacktest(params) {
                 if (!benchmarkHistory || benchmarkHistory.length === 0) {
                     benchmarkHistory = await spider.fetchETFHistoryData(benchmarkCode, startDate, endDate);
                 }
-                
+
                 // 写入本地数据库做持久化缓存，加速下次运行
                 if (benchmarkHistory && benchmarkHistory.length > 0) {
                     for (const row of benchmarkHistory) {
@@ -395,38 +397,47 @@ async function runBacktest(params) {
             const holding = portfolio[etf.code];
             const price = datePrices[etf.code] || 0;
 
-            // 自动补仓：未上市标的在今天首次出现有效价格，触发延迟建仓，设置 isListed 规避后续误触发
+            // 自动补仓：未上市标的在今天首次出现有效价格，触发延迟建仓
             if (holding && holding.shares === 0 && !holding.isListed && price > 0) {
-                holding.isListed = true; // 只要上市首日有了有效价格，立刻标记为已上市
                 const ratio = initialRatios[etf.code] || 0;
                 if (ratio > 0) {
                     const targetValue = totalValue * (ratio / 100);
-                    const shares = Math.floor(targetValue / price / 100) * 100;
-                    if (shares > 0) {
-                        const amount = shares * price;
-                        const fee = calcFee(amount, tradeFeeRate, feeExemptFive);
-                        if (cash >= amount + fee) { // 必须现金充足才执行补仓
-                            holding.shares = shares;
-                            holding.costPrice = price;
-                            cash -= (amount + fee);
-                            tradeRecords.push({
-                                date,
-                                type: 'init',
-                                etfCode: etf.code,
-                                action: 'buy',
-                                shares,
-                                price,
-                                amount,
-                                fee,
-                                reason: '延迟建仓（上市首日）',
-                                totalValue,
-                                preAmount: 0,
-                                postAmount: amount,
-                                preRatio: 0,
-                                postRatio: totalValue > 0 ? (amount / totalValue * 100) : 0
-                            });
-                            logger.info(`[延迟建仓] 标的 ${etf.code} 于上市首日 ${date} 自动补仓成功，单价: ${price}，建仓份额: ${shares} 股`);
-                        }
+                    let shares = Math.floor(targetValue / price / 100) * 100;
+                    let amount = shares * price;
+                    let fee = calcFee(amount, tradeFeeRate, feeExemptFive);
+
+                    if (cash < amount + fee) {
+                        // 现金不足降级买入可用现金能买的最大整手
+                        shares = Math.floor((cash * 0.999) / price / 100) * 100;
+                        amount = shares * price;
+                        fee = calcFee(amount, tradeFeeRate, feeExemptFive);
+                    }
+
+                    if (shares > 0 && cash >= amount + fee) {
+                        holding.isListed = true; // 实际建仓成功才标记为已上市
+                        holding.shares = shares;
+                        holding.costPrice = price;
+                        cash -= (amount + fee);
+                        tradeRecords.push({
+                            date,
+                            type: 'init',
+                            etfCode: etf.code,
+                            action: 'buy',
+                            shares,
+                            price,
+                            amount,
+                            fee,
+                            reason: '延迟建仓（上市首日）',
+                            totalValue,
+                            preAmount: 0,
+                            postAmount: amount,
+                            preRatio: 0,
+                            postRatio: totalValue > 0 ? (amount / totalValue * 100) : 0
+                        });
+                        logger.info(`[延迟建仓] 标的 ${etf.code} 于上市首日 ${date} 自动补仓成功，单价: ${price}，建仓份额: ${shares} 股`);
+                    } else {
+                        // 现金彻底不足以买入1手，暂不标记 isListed，留待后续交易日再平衡释放现金后自动建仓
+                        logger.warn(`[延迟建仓] 标的 ${etf.code} 在 ${date} 现金不足，留待后续交易日重试`);
                     }
                 }
             }
@@ -496,7 +507,7 @@ async function runBacktest(params) {
                     // 未创新高，交由 evaluateStrategyA 根据回撤幅度研判档位
                     aResult = evaluateStrategyA(
                         configWithOverride, drawdown, historyHighValue,
-                        totalValue, currentALevel, initialRatios, stepRatios
+                        totalValue, currentALevel, initialRatios, stepRatios, drawdownBuffer
                     );
                 }
             }
@@ -1042,16 +1053,7 @@ async function runParameterOptimization(params) {
  * @param {Object} stepRatios - 各ETF的加减比步长 {code: 百分数}
  * @returns {Object|null} 研判结果 {action, reason, ratios, newLevel, resetHigh} 或 null(不调仓)
  */
-function evaluateStrategyA(config, drawdown, historyHigh, currentValue, currentALevel, initialRatios, stepRatios = {}) {
-    // [已修复] 原代码此处有一段「创新高复位」的防御性兜底判断，与主循环第 430 行的
-    //   主动复位逻辑重复。这导致两个问题：
-    //   1. 职责重叠：主循环已经用 totalValue >= historyHighValue 判断并生成了 reset 结果，
-    //      在未创新高时才调用本函数（传入的 currentValue 实际不会 >= historyHigh）。
-    //   2. 死代码风险：由于主循环通过 else 分支调用本函数，此处的复位判断永远不会触发，
-    //      容易误导维护者以为这是复位主入口。
-    //   修复方式：移除冗余的兜底复位判断，让本函数专注于「按回撤幅度研判档位」这一单一职责。
-    //   创新高复位的唯一入口收敛到主循环第 430 行。
-
+function evaluateStrategyA(config, drawdown, historyHigh, currentValue, currentALevel, initialRatios, stepRatios = {}, buffer = 1.0) {
     // 1. 按回撤幅度寻找当前满足的最高回撤档位
     // 档位按 threshold 从大到小排序，找到第一个 drawdown >= threshold 的档位即为应进入的档位
     const sortedLevels = (config.drawdownLevels || []).sort((a, b) => b.threshold - a.threshold);
@@ -1083,12 +1085,21 @@ function evaluateStrategyA(config, drawdown, historyHigh, currentValue, currentA
         };
     }
 
-    // 4. 反弹直接退档判定（直接下调至当前回撤匹配的目标档位，支持跨级与复位，解决逐级退档滞后问题）
-    if (expectedLevel < currentALevel) {
+    // 4. 反弹退档判定：引入防抖滞后缓冲区 buffer，消除临界震荡反复买卖摩擦
+    if (expectedLevel < currentALevel && currentALevel > 0) {
+        const currentLevelCfg = sortedLevels.find(l => l.levelOrder === currentALevel);
+        const currentThreshold = currentLevelCfg ? currentLevelCfg.threshold : 0;
+        const exitThreshold = currentThreshold - Math.max(0, buffer);
+
+        // 如果回撤仍在 [exitThreshold, currentThreshold] 之间，属于防抖滞后盲区，维持当前档位
+        if (drawdown >= exitThreshold) {
+            return null;
+        }
+
         if (expectedLevel === 0) {
             return {
                 action: 'rebound',
-                reason: `回撤收窄至 ${drawdown.toFixed(2)}%（低于第 1 档阈值），退回初始配置比例`,
+                reason: `回撤收窄至 ${drawdown.toFixed(2)}%（有效摆脱第 1 档防抖盲区），退回初始配置比例`,
                 ratios: { ...initialRatios },
                 newLevel: 0,
                 resetHigh: false
@@ -1096,7 +1107,7 @@ function evaluateStrategyA(config, drawdown, historyHigh, currentValue, currentA
         } else {
             return {
                 action: 'rebound',
-                reason: `回撤收窄至 ${drawdown.toFixed(2)}%，下调成第 ${expectedLevel} 档配置`,
+                reason: `回撤收窄至 ${drawdown.toFixed(2)}%（有效摆脱第 ${currentALevel} 档防抖盲区），下调成第 ${expectedLevel} 档配置`,
                 ratios: expectedRatios,
                 newLevel: expectedLevel,
                 resetHigh: false

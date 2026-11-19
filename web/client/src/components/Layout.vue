@@ -10,21 +10,17 @@
 					<el-icon><DataAnalysis /></el-icon>
 					<span>回测寻优</span>
 				</el-menu-item>
-				<el-sub-menu index="/etf">
-					<template #title>
-						<el-icon><Coin /></el-icon>
-						<span>股票管理</span>
-					</template>
-					<el-menu-item index="/config">
-						<span>股票配置</span>
-					</el-menu-item>
-					<el-menu-item index="/history">
-						<span>历史走势</span>
-					</el-menu-item>
-				</el-sub-menu>
+				<el-menu-item index="/config">
+					<el-icon><Coin /></el-icon>
+					<span>股票管理</span>
+				</el-menu-item>
 				<el-menu-item index="/strategy">
 					<el-icon><Setting /></el-icon>
 					<span>策略配置</span>
+				</el-menu-item>
+				<el-menu-item index="/history">
+					<el-icon><TrendCharts /></el-icon>
+					<span>历史走势</span>
 				</el-menu-item>
 			</el-menu>
 		</el-aside>
@@ -76,7 +72,7 @@
  */
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Coin, Setting, DataAnalysis, Refresh } from '@element-plus/icons-vue'
+import { Coin, Setting, DataAnalysis, Refresh, TrendCharts } from '@element-plus/icons-vue'
 import { healthCheck } from '@/api'
 
 const route = useRoute()

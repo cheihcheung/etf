@@ -12,6 +12,7 @@
 
 const { app, BrowserWindow, ipcMain, Menu, protocol, net } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const Database = require('./src/database');
 const { registerIpcHandlers } = require('./src/ipc-handlers');
 
@@ -103,9 +104,21 @@ async function initializeApp() {
         }
 
         // 初始化数据库
-        const dbPath = isDev
-            ? path.join(__dirname, 'data/etf.db')
-            : path.join(app.getPath('userData'), 'etf.db');
+        let dbPath;
+        if (isDev) {
+            dbPath = path.join(__dirname, 'data/etf.db');
+        } else {
+            dbPath = path.join(app.getPath('userData'), 'etf.db');
+            // 首次启动时若用户目录数据库不存在，自动从打包的资源目录复制初始种子数据库
+            if (!fs.existsSync(dbPath)) {
+                const seedPath = path.join(process.resourcesPath, 'seed/etf.db');
+                if (fs.existsSync(seedPath)) {
+                    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+                    fs.copyFileSync(seedPath, dbPath);
+                    console.log('已从种子数据库初始化用户数据:', dbPath);
+                }
+            }
+        }
 
         db = new Database(dbPath);
         await db.initialize();
