@@ -10,11 +10,11 @@ import axios from 'axios'
 
 /** Axios 实例基础配置：所有请求默认前缀 /api，超时 60 秒，JSON 格式 */
 const request = axios.create({
-    baseURL: '/api',
-    timeout: 600000, // 10分钟超时（回测计算与大段历史同步可能耗时较长）
-    headers: {
-        'Content-Type': 'application/json',
-    },
+  baseURL: '/api',
+  timeout: 600000, // 10分钟超时（回测计算与大段历史同步可能耗时较长）
+  headers: {
+    'Content-Type': 'application/json'
+  }
 })
 
 // ============================================================================
@@ -30,18 +30,18 @@ const request = axios.create({
 // ============================================================================
 
 request.interceptors.response.use(
-    (response) => {
-        // 处理 200 + success: false 的业务逻辑错误
-        if (response.data && response.data.success === false) {
-            const message = response.data.message || '请求失败'
-            return Promise.reject(new Error(message))
-        }
-        return response.data
-    },
-    (error) => {
-        const message = error.response?.data?.message || error.message || '请求失败'
-        return Promise.reject(new Error(message))
+  (response) => {
+    // 处理 200 + success: false 的业务逻辑错误
+    if (response.data && response.data.success === false) {
+      const message = response.data.message || '请求失败'
+      return Promise.reject(new Error(message))
     }
+    return response.data
+  },
+  (error) => {
+    const message = error.response?.data?.message || error.message || '请求失败'
+    return Promise.reject(new Error(message))
+  }
 )
 
 export default request

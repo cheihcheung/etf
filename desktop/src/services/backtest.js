@@ -21,6 +21,27 @@ class BacktestService {
     }
 
     /**
+     * 判断 currentDate 是否为当前自然周的最后一个交易日
+     * 无论周五是否为节假日休市，只要下一个交易日跨周（或已无下一交易日），则视为周调仓日
+     */
+    isLastTradingDayOfWeek(currentDate, nextDate) {
+        if (!nextDate) return true;
+        const d1 = new Date(currentDate);
+        const d2 = new Date(nextDate);
+        const day1 = d1.getDay() || 7;
+        const day2 = d2.getDay() || 7;
+        const monday1 = new Date(d1);
+        monday1.setDate(d1.getDate() - day1 + 1);
+        monday1.setHours(0, 0, 0, 0);
+
+        const monday2 = new Date(d2);
+        monday2.setDate(d2.getDate() - day2 + 1);
+        monday2.setHours(0, 0, 0, 0);
+
+        return monday1.getTime() !== monday2.getTime();
+    }
+
+    /**
      * 执行单次回测
      */
     async runBacktest(params) {
@@ -115,6 +136,12 @@ class BacktestService {
             // 3. 获取基准历史行情
             let benchmarkHistory = [];
             if (benchmarkCode) {
+                let bmScaleFactor = 1.0;
+                const bmStock = (this.db.queryOne || this.db.get).call(this.db, `SELECT scale_factor FROM stock WHERE code = ?`, [benchmarkCode]);
+                if (bmStock && bmStock.scale_factor && parseFloat(bmStock.scale_factor) > 0) {
+                    bmScaleFactor = parseFloat(bmStock.scale_factor);
+                }
+
                 const bmRows = this.db.query(`
                     SELECT trade_date, close_price
                     FROM history_data
@@ -124,7 +151,7 @@ class BacktestService {
                 if (bmRows && bmRows.length > 0) {
                     benchmarkHistory = bmRows.map(r => ({
                         tradeDate: String(r.trade_date).slice(0, 10),
-                        closePrice: parseFloat(r.close_price)
+                        closePrice: parseFloat(r.close_price) / bmScaleFactor
                     }));
                 }
             }
@@ -168,6 +195,12 @@ class BacktestService {
                     datePriceIndexed[e.code].set(row.tradeDate, row.closePrice);
                     dateOpenPriceIndexed[e.code].set(row.tradeDate, row.openPrice || row.closePrice);
                 });
+            });
+
+            // 建立对比基准快速日期索引 Map（O(1) 查找）
+            const benchmarkPriceMap = new Map();
+            benchmarkHistory.forEach(h => {
+                benchmarkPriceMap.set(h.tradeDate, h.closePrice);
             });
 
             // 次日开盘撮合模式下的待执行挂单
@@ -350,8 +383,8 @@ class BacktestService {
                 if (tradeFrequency === 'daily') {
                     isTradeDay = true;
                 } else if (tradeFrequency === 'weekly') {
-                    const d = new Date(date);
-                    if (d.getDay() === 5 || i === sortedDates.length - 1) isTradeDay = true;
+                    const nextDate = sortedDates[i + 1];
+                    if (this.isLastTradingDayOfWeek(date, nextDate)) isTradeDay = true;
                 } else if (tradeFrequency === 'monthly') {
                     const d = new Date(date);
                     const nextDate = sortedDates[i + 1];
@@ -523,12 +556,12 @@ class BacktestService {
                 }
                 totalValue = cash + mv;
 
-                // 6.8 对比基准净值折算
+                // 6.8 对比基准净值折算（使用 Map O(1) 快速查找）
                 let benchmarkValue = null;
                 if (benchmarkCode && benchmarkBasePrice > 0) {
-                    const bmDay = benchmarkHistory.find(h => h.tradeDate === date);
-                    if (bmDay && bmDay.closePrice > 0) {
-                        lastBenchmarkPrice = bmDay.closePrice;
+                    const bmPrice = benchmarkPriceMap.get(date);
+                    if (bmPrice && bmPrice > 0) {
+                        lastBenchmarkPrice = bmPrice;
                     }
                     benchmarkValue = parseFloat((initialCapital * (lastBenchmarkPrice / benchmarkBasePrice)).toFixed(2));
                 }
@@ -643,6 +676,7 @@ class BacktestService {
             // 8. 组装返回结果
             const result = {
                 params,
+                initialCapital,
                 totalReturn: parseFloat(totalReturn.toFixed(4)),
                 annualReturn: parseFloat(annualReturn.toFixed(4)),
                 maxDrawdown: parseFloat(maxDrawdown.toFixed(4)),
@@ -922,13 +956,17 @@ class BacktestService {
 
     /**
      * 参数网格寻优
+     * @param {Object} params - 基础参数与寻优网格配置
+     * @param {Function} [onProgress] - 进度回调函数 ({ current, total, percent, currentParams })
      */
-    async runParameterOptimization(params) {
+    async runParameterOptimization(params, onProgress) {
         const { baseParams, optimizationRanges } = params;
         const combinations = this.generateCombinations(optimizationRanges);
         const results = [];
+        const total = combinations.length;
 
-        for (const combo of combinations) {
+        for (let idx = 0; idx < total; idx++) {
+            const combo = combinations[idx];
             const testParams = { ...baseParams, ...combo, isOptimization: true };
             const result = await this.runBacktest(testParams);
 
@@ -941,6 +979,17 @@ class BacktestService {
                     annualVolatility: result.annualVolatility,
                     sharpeRatio: result.sharpeRatio
                 });
+            }
+
+            if (typeof onProgress === 'function') {
+                try {
+                    onProgress({
+                        current: idx + 1,
+                        total,
+                        percent: Math.round(((idx + 1) / total) * 100),
+                        currentParams: combo
+                    });
+                } catch (_) {}
             }
         }
 

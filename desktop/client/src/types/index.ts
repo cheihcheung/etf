@@ -76,23 +76,23 @@ export interface RebalanceConfig {
 }
 
 export interface BacktestParams {
-	startDate: string
-	endDate: string
-	initialCapital: number
-	feeRate: number
-	feeExemptFive: boolean
-	etfs: { code: string; name: string }[]
-	initialRatios: Record<string, number>
-	strategyAConfig?: any
-	strategyBConfig?: any
-	rebalanceConfig?: any
-	rebalanceThreshold: number
-	tradeFrequency: string
-	strategyPriority: string
-	centralAnnual: number
-	resetOnHigh: boolean
-	tradeMatchMode?: 'close' | 'next_open'
-	drawdownBuffer?: number
+  startDate: string
+  endDate: string
+  initialCapital: number
+  feeRate: number
+  feeExemptFive: boolean
+  etfs: { code: string; name: string }[]
+  initialRatios: Record<string, number>
+  strategyAConfig?: any
+  strategyBConfig?: any
+  rebalanceConfig?: any
+  rebalanceThreshold: number
+  tradeFrequency: string
+  strategyPriority: string
+  centralAnnual: number
+  resetOnHigh: boolean
+  tradeMatchMode?: 'close' | 'next_open'
+  drawdownBuffer?: number
 }
 
 export interface BacktestResult {
@@ -111,29 +111,32 @@ export interface BacktestResult {
     annualVolatility: number
     sharpeRatio: number
   }
-  etfMetrics?: Record<string, {
-    name: string
-    totalReturn: number
-    annualReturn: number
-    maxDrawdown: number
-    annualVolatility: number
-    sharpeRatio: number
-  }>
+  etfMetrics?: Record<
+    string,
+    {
+      name: string
+      totalReturn: number
+      annualReturn: number
+      maxDrawdown: number
+      annualVolatility: number
+      sharpeRatio: number
+    }
+  >
   tradeRecords: any[]
-  dailyValues: { 
-    date: string; 
-    totalValue: number; 
-    cash: number; 
-    marketValue: number;
-    benchmarkValue?: number;
-    drawdown?: number;
-    assetRatios?: Record<string, number>;
-    etfPerformances?: Record<string, number>;
+  dailyValues: {
+    date: string
+    totalValue: number
+    cash: number
+    marketValue: number
+    benchmarkValue?: number
+    drawdown?: number
+    assetRatios?: Record<string, number>
+    etfPerformances?: Record<string, number>
   }[]
   yearlyStats?: {
-    year: string;
-    strategyReturn: number;
-    benchmarkReturn: number;
+    year: string
+    strategyReturn: number
+    benchmarkReturn: number
   }[]
 }
 

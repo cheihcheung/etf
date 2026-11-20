@@ -194,6 +194,20 @@ class SQLiteDatabase {
     }
 
     /**
+     * queryOne 别名（兼容 better-sqlite3 API 习惯）
+     */
+    get(sql, params = []) {
+        return this.queryOne(sql, params);
+    }
+
+    /**
+     * query 别名（兼容 better-sqlite3 API 习惯）
+     */
+    all(sql, params = []) {
+        return this.query(sql, params);
+    }
+
+    /**
      * 执行 INSERT/UPDATE/DELETE
      * 返回纯 JSON 对象，确保可以通过 IPC 传递
      */

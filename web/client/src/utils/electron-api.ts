@@ -10,126 +10,126 @@ import request from './http'
 
 // ==================== ETF 相关接口 ====================
 export const etfApi = {
-    list: async () => {
-        return request.get('/etf/list')
-    },
+  list: async () => {
+    return request.get('/etf/list')
+  },
 
-    add: async (data: any) => {
-        return request.post('/etf/add', data)
-    },
+  add: async (data: any) => {
+    return request.post('/etf/add', data)
+  },
 
-    update: async (data: any) => {
-        return request.put('/etf/update', data)
-    },
+  update: async (data: any) => {
+    return request.put('/etf/update', data)
+  },
 
-    delete: async (code: string) => {
-        return request.delete(`/etf/delete/${code}`)
-    },
+  delete: async (code: string) => {
+    return request.delete(`/etf/delete/${code}`)
+  },
 
-    quote: async (code: string) => {
-        return request.get(`/etf/quote/${code}`)
-    },
+  quote: async (code: string) => {
+    return request.get(`/etf/quote/${code}`)
+  },
 
-    search: async (keyword: string) => {
-        return request.get('/etf/search', { params: { keyword } })
-    },
+  search: async (keyword: string) => {
+    return request.get('/etf/search', { params: { keyword } })
+  },
 
-    syncAll: async () => {
-        return request.post('/etf/sync-all')
-    },
+  syncAll: async () => {
+    return request.post('/etf/sync-all')
+  },
 
-    syncHistory: async (startDate: string, endDate: string, codes?: string[], dataSource?: string) => {
-        return request.post('/etf/sync-history', { startDate, endDate, codes, dataSource })
-    },
+  syncHistory: async (startDate: string, endDate: string, codes?: string[], dataSource?: string) => {
+    return request.post('/etf/sync-history', { startDate, endDate, codes, dataSource })
+  },
 
-    history: async (code: string, startDate: string, endDate: string) => {
-        return request.get(`/etf/history/${code}`, { params: { startDate, endDate } })
-    },
+  history: async (code: string, startDate: string, endDate: string) => {
+    return request.get(`/etf/history/${code}`, { params: { startDate, endDate } })
+  },
 
-    marketList: async () => {
-        return request.get('/etf/market-list')
-    }
+  marketList: async () => {
+    return request.get('/etf/market-list')
+  }
 }
 
 // ==================== 配置相关接口 ====================
 export const configApi = {
-    getInitialRatios: async () => {
-        return request.get('/config/initial-ratios')
-    },
+  getInitialRatios: async () => {
+    return request.get('/config/initial-ratios')
+  },
 
-    updateInitialRatios: async (ratios: any) => {
-        return request.put('/config/initial-ratios', ratios)
-    },
+  updateInitialRatios: async (ratios: any) => {
+    return request.put('/config/initial-ratios', ratios)
+  },
 
-    getStrategyA: async () => {
-        return request.get('/config/strategy-a')
-    },
+  getStrategyA: async () => {
+    return request.get('/config/strategy-a')
+  },
 
-    updateStrategyA: async (config: any) => {
-        return request.put('/config/strategy-a', config)
-    },
+  updateStrategyA: async (config: any) => {
+    return request.put('/config/strategy-a', config)
+  },
 
-    getStrategyB: async () => {
-        return request.get('/config/strategy-b')
-    },
+  getStrategyB: async () => {
+    return request.get('/config/strategy-b')
+  },
 
-    updateStrategyB: async (config: any) => {
-        return request.put('/config/strategy-b', config)
-    },
+  updateStrategyB: async (config: any) => {
+    return request.put('/config/strategy-b', config)
+  },
 
-    getEtfTypes: async () => {
-        return request.get('/config/etf-types')
-    }
+  getEtfTypes: async () => {
+    return request.get('/config/etf-types')
+  }
 }
 
 // ==================== 回测相关接口 ====================
 export const backtestApi = {
-    run: async (params: any) => {
-        return request.post('/backtest/run', params)
-    },
+  run: async (params: any) => {
+    return request.post('/backtest/run', params)
+  },
 
-    optimize: async (params: any) => {
-        return request.post('/backtest/optimize', params)
-    },
+  optimize: async (params: any) => {
+    return request.post('/backtest/optimize', params)
+  },
 
-    results: async () => {
-        return request.get('/backtest/results')
-    },
+  results: async () => {
+    return request.get('/backtest/results')
+  },
 
-    detail: async (id: number) => {
-        return request.get(`/backtest/${id}`)
-    }
+  detail: async (id: number) => {
+    return request.get(`/backtest/${id}`)
+  }
 }
 
 // ==================== 交易记录相关接口 ====================
 export const recordsApi = {
-    trades: async (params?: any) => {
-        return request.get('/records/trades', { params })
-    },
+  trades: async (params?: any) => {
+    return request.get('/records/trades', { params })
+  },
 
-    market: async () => {
-        return request.get('/records/market')
-    }
+  market: async () => {
+    return request.get('/records/market')
+  }
 }
 
 // ==================== 系统健康检查 ====================
 export const healthCheck = async () => {
-    return request.get('/health')
+  return request.get('/health')
 }
 
 // ==================== XLS 历史数据导入 ====================
 export const importXlsApi = {
-    preview: async (file: File) => {
-        const formData = new FormData()
-        formData.append('file', file)
-        return request.post('/import/xls-preview', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' }
-        })
-    },
+  preview: async (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return request.post('/import/xls-preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
 
-    save: async (etfCode: string, filePath: string) => {
-        return request.post('/import/xls-save', { etfCode, filePath })
-    }
+  save: async (etfCode: string, filePath: string) => {
+    return request.post('/import/xls-save', { etfCode, filePath })
+  }
 }
 
 export default { etfApi, configApi, backtestApi, recordsApi, healthCheck, importXlsApi }

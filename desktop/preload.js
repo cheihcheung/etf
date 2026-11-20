@@ -55,6 +55,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     backtest: {
         run: (params) => ipcRenderer.invoke('backtest:run', toPlain(params)),
         optimize: (params) => ipcRenderer.invoke('backtest:optimize', toPlain(params)),
+        onOptimizeProgress: (callback) => {
+            const handler = (_event, progress) => callback(progress);
+            ipcRenderer.on('backtest:optimize-progress', handler);
+            return () => ipcRenderer.removeListener('backtest:optimize-progress', handler);
+        },
         results: () => ipcRenderer.invoke('backtest:results'),
         detail: (id) => ipcRenderer.invoke('backtest:detail', id)
     },

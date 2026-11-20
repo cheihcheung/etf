@@ -54,6 +54,27 @@ const TradeRecord = require('../models/TradeRecord');
 const BacktestResult = require('../models/BacktestResult');
 
 /**
+ * 判断 currentDate 是否为当前自然周的最后一个交易日
+ * 无论周五是否为节假日休市，只要下一个交易日跨周（或已无下一交易日），则视为周调仓日
+ */
+function isLastTradingDayOfWeek(currentDate, nextDate) {
+    if (!nextDate) return true;
+    const d1 = new Date(currentDate);
+    const d2 = new Date(nextDate);
+    const day1 = d1.getDay() || 7;
+    const day2 = d2.getDay() || 7;
+    const monday1 = new Date(d1);
+    monday1.setDate(d1.getDate() - day1 + 1);
+    monday1.setHours(0, 0, 0, 0);
+
+    const monday2 = new Date(d2);
+    monday2.setDate(d2.getDate() - day2 + 1);
+    monday2.setHours(0, 0, 0, 0);
+
+    return monday1.getTime() !== monday2.getTime();
+}
+
+/**
  * 执行单次组合回测（系统最核心函数）
  *
  * @param {Object} params - 回测参数对象
@@ -198,6 +219,9 @@ async function runBacktest(params) {
     // 基准数据用于计算基准指标(与组合对比)，仅在 benchmarkCode 有效时拉取，缺失则回退爬虫。
     let benchmarkHistory = [];
     if (benchmarkCode) {
+        const bmScaleFactor = (benchmarkStock && benchmarkStock.scale_factor && parseFloat(benchmarkStock.scale_factor) > 0)
+            ? parseFloat(benchmarkStock.scale_factor)
+            : 1.0;
         try {
             const dbRows = await HistoryData.getHistoryByRange(benchmarkCode, startDate, endDate);
             if (dbRows && dbRows.length > 0) {
@@ -209,7 +233,7 @@ async function runBacktest(params) {
                     } else {
                         tradeDate = String(r.trade_date).slice(0, 10);
                     }
-                    return { tradeDate, closePrice: parseFloat(r.close_price) };
+                    return { tradeDate, closePrice: parseFloat(r.close_price) / bmScaleFactor };
                 });
                 logger.info(`从本地加载 ${benchmarkCode} 基准数据: ${benchmarkHistory.length} 条，最早: ${benchmarkHistory[0].tradeDate}`);
             } else {
@@ -221,6 +245,12 @@ async function runBacktest(params) {
                 }
                 if (!benchmarkHistory || benchmarkHistory.length === 0) {
                     benchmarkHistory = await spider.fetchETFHistoryData(benchmarkCode, startDate, endDate);
+                }
+                if (benchmarkHistory && benchmarkHistory.length > 0 && bmScaleFactor !== 1.0) {
+                    benchmarkHistory = benchmarkHistory.map(r => ({
+                        ...r,
+                        closePrice: r.closePrice / bmScaleFactor
+                    }));
                 }
 
                 // 写入本地数据库做持久化缓存，加速下次运行
@@ -303,6 +333,12 @@ async function runBacktest(params) {
     // 基准价格记忆 & 基准首价(用于将基准折算成同等初始资金的可比净值)
     let lastBenchmarkPrice = benchmarkHistory.length > 0 ? benchmarkHistory[0].closePrice : 0;
     const benchmarkBasePrice = lastBenchmarkPrice;
+
+    // 建立基准快速查找索引 Map (O(1))
+    const benchmarkPriceMap = new Map();
+    benchmarkHistory.forEach(h => {
+        benchmarkPriceMap.set(h.tradeDate, h.closePrice);
+    });
 
     // ==========================================================
     // 阶段 5：初始化持仓结构
@@ -470,8 +506,8 @@ async function runBacktest(params) {
         if (tradeFrequency === 'daily') {
             isTradeDay = true;
         } else if (tradeFrequency === 'weekly') {
-            const d = new Date(date);
-            if (d.getDay() === 5 || i === sortedDates.length - 1) isTradeDay = true; // 周五或最后一天
+            const nextDate = sortedDates[i + 1];
+            if (isLastTradingDayOfWeek(date, nextDate)) isTradeDay = true; // 自然周最后一个交易日(遇节假日周五休市自动前移)
         } else if (tradeFrequency === 'monthly') {
             const d = new Date(date);
             const nextDate = sortedDates[i + 1];
@@ -702,14 +738,14 @@ async function runBacktest(params) {
         //   修复方式：把 marketValue 赋值为 mv（调仓后的最新市值）。
         totalMarketValue = mv;
 
-        // ---------- 7.8 计算对比基准净值 ----------
+        // ---------- 7.8 计算对比基准净值（使用 Map O(1) 快速查找） ----------
         // 精确匹配当日基准价，找不到则沿用价格记忆(不回退到0)。
         // 将基准折算成「同等初始资金」的可比净值：initialCapital × (当日基准价 / 基准首价)
         let benchmarkValue = null;
         if (benchmarkCode && benchmarkBasePrice > 0) {
-            const benchmarkDay = benchmarkHistory.find(h => h.tradeDate === date);
-            if (benchmarkDay && benchmarkDay.closePrice > 0) {
-                lastBenchmarkPrice = benchmarkDay.closePrice;
+            const bmPrice = benchmarkPriceMap.get(date);
+            if (bmPrice && bmPrice > 0) {
+                lastBenchmarkPrice = bmPrice;
             }
             benchmarkValue = parseFloat((initialCapital * (lastBenchmarkPrice / benchmarkBasePrice)).toFixed(2));
         }
@@ -864,6 +900,7 @@ async function runBacktest(params) {
     // 8.5 组装最终回测结果对象
     const result = {
         params,
+        initialCapital,
         totalReturn: parseFloat(totalReturn.toFixed(4)),
         annualReturn: parseFloat(annualReturn.toFixed(4)),
         maxDrawdown: parseFloat(maxDrawdown.toFixed(4)),

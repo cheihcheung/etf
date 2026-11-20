@@ -1,0 +1,7 @@
+dist
+node_modules
+*.local
+.vite
+package-lock.json
+src/types/auto-imports.d.ts
+src/types/components.d.ts

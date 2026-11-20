@@ -24,24 +24,24 @@
  * @returns 格式化后的字符串，如无效则返回 "-"
  */
 export function formatDateTime(val: string | Date | null | undefined): string {
-    if (!val) return '-'
-    
-    // 如果是纯字符串且不含 T/Z，可能是后端已经格式化好的本地时间，直接返回
-    if (typeof val === 'string' && !val.includes('T') && !val.includes('Z')) {
-        return val
-    }
-    
-    const d = typeof val === 'string' ? new Date(val) : val
-    if (isNaN(d.getTime())) return '-'
-    
-    const year = d.getFullYear()
-    const month = String(d.getMonth() + 1).padStart(2, '0')
-    const date = String(d.getDate()).padStart(2, '0')
-    const hours = String(d.getHours()).padStart(2, '0')
-    const minutes = String(d.getMinutes()).padStart(2, '0')
-    const seconds = String(d.getSeconds()).padStart(2, '0')
-    
-    return `${year}-${month}-${date} ${hours}:${minutes}:${seconds}`
+  if (!val) return '-'
+
+  // 如果是纯字符串且不含 T/Z，可能是后端已经格式化好的本地时间，直接返回
+  if (typeof val === 'string' && !val.includes('T') && !val.includes('Z')) {
+    return val
+  }
+
+  const d = typeof val === 'string' ? new Date(val) : val
+  if (isNaN(d.getTime())) return '-'
+
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const date = String(d.getDate()).padStart(2, '0')
+  const hours = String(d.getHours()).padStart(2, '0')
+  const minutes = String(d.getMinutes()).padStart(2, '0')
+  const seconds = String(d.getSeconds()).padStart(2, '0')
+
+  return `${year}-${month}-${date} ${hours}:${minutes}:${seconds}`
 }
 
 /**
@@ -51,29 +51,29 @@ export function formatDateTime(val: string | Date | null | undefined): string {
  * @returns YYYY-MM-DD 格式字符串
  */
 export function formatDate(val: string | Date | null | undefined): string {
-    if (!val) return '-'
-    
-    // 如果是 String 类型，且可能是包含 T 的 ISO 格式字符串
-    if (typeof val === 'string' && val.includes('T')) {
-        const d = new Date(val)
-        if (!isNaN(d.getTime())) {
-            const year = d.getFullYear()
-            const month = String(d.getMonth() + 1).padStart(2, '0')
-            const date = String(d.getDate()).padStart(2, '0')
-            return `${year}-${month}-${date}`
-        }
+  if (!val) return '-'
+
+  // 如果是 String 类型，且可能是包含 T 的 ISO 格式字符串
+  if (typeof val === 'string' && val.includes('T')) {
+    const d = new Date(val)
+    if (!isNaN(d.getTime())) {
+      const year = d.getFullYear()
+      const month = String(d.getMonth() + 1).padStart(2, '0')
+      const date = String(d.getDate()).padStart(2, '0')
+      return `${year}-${month}-${date}`
     }
-    
-    // 如果是 Date 对象
-    if (val instanceof Date) {
-        const year = val.getFullYear()
-        const month = String(val.getMonth() + 1).padStart(2, '0')
-        const date = String(val.getDate()).padStart(2, '0')
-        return `${year}-${month}-${date}`
-    }
-    
-    // 否则直接截取前10位返回即可
-    return typeof val === 'string' ? val.slice(0, 10) : '-'
+  }
+
+  // 如果是 Date 对象
+  if (val instanceof Date) {
+    const year = val.getFullYear()
+    const month = String(val.getMonth() + 1).padStart(2, '0')
+    const date = String(val.getDate()).padStart(2, '0')
+    return `${year}-${month}-${date}`
+  }
+
+  // 否则直接截取前10位返回即可
+  return typeof val === 'string' ? val.slice(0, 10) : '-'
 }
 
 /**
@@ -81,8 +81,8 @@ export function formatDate(val: string | Date | null | undefined): string {
  * @returns YYYY-MM-DD
  */
 export function getTodayString(): string {
-    const d = new Date(new Date().getTime() + 8 * 3600 * 1000)
-    return d.toISOString().slice(0, 10)
+  const d = new Date(new Date().getTime() + 8 * 3600 * 1000)
+  return d.toISOString().slice(0, 10)
 }
 
 /**
@@ -93,10 +93,10 @@ export function getTodayString(): string {
  * @returns 格式化后的百分比字符串
  */
 export function formatPercent(val: number | string | null | undefined, precision = 2): string {
-    if (val === null || val === undefined || val === '') return '-'
-    const num = typeof val === 'number' ? val : parseFloat(val)
-    if (isNaN(num)) return '-'
-    return num.toFixed(precision) + '%'
+  if (val === null || val === undefined || val === '') return '-'
+  const num = typeof val === 'number' ? val : parseFloat(val)
+  if (isNaN(num)) return '-'
+  return num.toFixed(precision) + '%'
 }
 
 /**
@@ -107,8 +107,8 @@ export function formatPercent(val: number | string | null | undefined, precision
  * @returns 格式化后的金额字符串
  */
 export function formatMoney(val: number | string | null | undefined, precision = 2): string {
-    if (val === null || val === undefined || val === '') return '-'
-    const num = typeof val === 'number' ? val : parseFloat(val)
-    if (isNaN(num)) return '-'
-    return num.toFixed(precision).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  if (val === null || val === undefined || val === '') return '-'
+  const num = typeof val === 'number' ? val : parseFloat(val)
+  if (isNaN(num)) return '-'
+  return num.toFixed(precision).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
