@@ -583,12 +583,12 @@ function registerIpcHandlers(ipcMain, db) {
                 const DynamicBacktest = require('./services/backtest');
                 runner = new DynamicBacktest(db);
             } catch (_) {}
-            const result = await runner.runParameterOptimization(params, (progress) => {
+            const optimResult = await runner.runParameterOptimization(params, (progress) => {
                 if (event && event.sender && !event.sender.isDestroyed()) {
                     event.sender.send('backtest:optimize-progress', progress);
                 }
             });
-            return { success: true, data: sanitizeData(result) };
+            return { success: true, data: sanitizeData(optimResult) };
         } catch (error) {
             return { success: false, message: getErrorMessage(error) };
         }
